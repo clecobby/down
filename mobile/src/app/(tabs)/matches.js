@@ -73,6 +73,7 @@ export default function Matches() {
               <Text style={[s.text, { fontWeight: '700' }]}>
                 {m.user.name}
                 {m.user.availableNow && <Text style={{ color: colors.ok }}> ●</Text>}
+                {m.bothDown && <Text style={{ color: colors.accent }}> 🔥 both down</Text>}
               </Text>
               <Text style={s.muted} numberOfLines={1}>
                 {m.lastMessage}

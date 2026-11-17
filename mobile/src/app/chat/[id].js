@@ -8,6 +8,8 @@ import { api } from '../../lib/api';
 import { useMe } from '../../lib/me';
 import { colors } from '../../lib/theme';
 import { Avatar, Button, Chip, Input, Sheet, s } from '../../components/ui';
+import DownSignal from '../../components/DownSignal';
+import * as Haptics from 'expo-haptics';
 
 const OPENERS = ['Hey 👋', 'So… tonight?', 'Drink first?', 'Your place or mine?', 'What are you up to later?'];
 const REPORT_REASONS = ['Fake profile', 'Harassment or threats', 'Inappropriate photos', 'Asked for money', 'Seems underage'];
@@ -79,6 +81,16 @@ export default function Chat() {
     load();
   }
 
+  // Private "down" signal: only revealed when both have sent it.
+  async function setDown(on) {
+    const wasBoth = chat.down?.both;
+    try {
+      const down = await api(`/matches/${id}/down`, { method: on ? 'POST' : 'DELETE' });
+      setChat((c) => ({ ...c, down }));
+      if (down.both && !wasBoth) Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {}
+  }
+
   async function respond(mid, status) {
     await api(`/matches/${id}/meetups/${mid}`, { method: 'POST', body: { status } });
     load();
@@ -113,6 +125,8 @@ export default function Chat() {
           <Ionicons name="ellipsis-horizontal" size={22} color={colors.text} />
         </Pressable>
       </View>
+
+      <DownSignal down={chat.down} name={u.name} onSend={() => setDown(true)} onWithdraw={() => setDown(false)} onPlan={() => setPlanning(true)} />
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         {timeline.length === 0 ? (

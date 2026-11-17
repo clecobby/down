@@ -1,19 +1,18 @@
 import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { GestureDetector, usePanGesture } from 'react-native-gesture-handler';
-import Animated, { interpolate, useAnimatedStyle, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { interpolate, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { colors } from '../lib/theme';
 import { DecideBar, ProfileContent } from './ProfileSheet';
-
-const SPRING = { damping: 22, stiffness: 190 };
+import { GLIDE } from './SwipeCard';
 
 // The full profile as a panel that tracks the finger: `rise` goes 0 → 1 while you pull the card up
 // (driven by TopCard), so opening feels like scrolling. Close by pulling down past the top or dragging the handle.
-export default function PullUpProfile({ user, rise, open, onClose, onDecide }) {
+export default function PullUpProfile({ user, photoIndex = 0, rise, open, onClose, onDecide }) {
   const { height } = useWindowDimensions();
   const range = height * 0.7;
 
   const close = () => {
-    rise.set(withTiming(0, { duration: 220 }));
+    rise.set(withTiming(0, GLIDE));
     onClose();
   };
 
@@ -24,7 +23,7 @@ export default function PullUpProfile({ user, rise, open, onClose, onDecide }) {
     },
     onDeactivate: (e) => {
       if (rise.get() < 0.75 || e.velocityY > 600) close();
-      else rise.set(withSpring(1, SPRING));
+      else rise.set(withTiming(1, GLIDE));
     },
   });
 
@@ -38,7 +37,9 @@ export default function PullUpProfile({ user, rise, open, onClose, onDecide }) {
   return (
     <Animated.View style={[st.panel, panel]} pointerEvents={open ? 'auto' : 'none'}>
       <ProfileContent
+        key={`${user.id}-${photoIndex}`}
         user={user}
+        initialPage={photoIndex}
         onClose={close}
         // Pulling down past the top of the content closes it (iOS bounce).
         onScrollEndDrag={(e) => e.nativeEvent.contentOffset.y < -70 && close()}

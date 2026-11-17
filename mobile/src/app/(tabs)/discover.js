@@ -11,7 +11,7 @@ import { api, photoUrl } from '../../lib/api';
 import { useMe } from '../../lib/me';
 import { colors } from '../../lib/theme';
 import { Button, Logo, s } from '../../components/ui';
-import { BackCard, THRESHOLD, TopCard } from '../../components/SwipeCard';
+import { BackCard, GLIDE, THRESHOLD, TopCard } from '../../components/SwipeCard';
 import PullUpProfile from '../../components/PullUpProfile';
 
 // Refresh location on open. The server snaps it to ~1 km and only shares county + rough distance.
@@ -27,14 +27,19 @@ export default function Discover() {
   const [deck, setDeck] = useState(null);
   const [match, setMatch] = useState(null);
   const [profileOpen, setProfileOpen] = useState(false); // full profile pulled up over the deck
+  const [openPhoto, setOpenPhoto] = useState(0); // the photo the card showed when the profile was opened
   const [locErr, setLocErr] = useState('');
   const flingRef = useRef(null);
   const drag = useSharedValue(0); // top card's x offset: drives the card underneath and the buttons
   const rise = useSharedValue(0); // how far the full profile is pulled up (0 → 1)
-  // The deck sinks back a little as the profile comes up over it.
-  const deckStyle = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.06 * rise.value }], opacity: 1 - 0.5 * rise.value }));
 
-  const load = useCallback(() => api('/discover').then(setDeck).catch(() => setDeck([])), []);
+  const load = useCallback(
+    () =>
+      api('/discover')
+        .then(setDeck)
+        .catch(() => setDeck([])),
+    [],
+  );
 
   const locate = useCallback(
     () =>
@@ -82,7 +87,10 @@ export default function Discover() {
       </View>
 
       {(me.turnOns?.length ?? 0) < 3 && (
-        <Pressable onPress={() => router.push('/turnons')} style={{ marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: colors.accentSoft }}>
+        <Pressable
+          onPress={() => router.push('/turnons')}
+          style={{ marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: colors.accentSoft }}
+        >
           <Text style={[s.text, { fontSize: 13 }]}>
             🔥 Play the 30-second turn-ons game to see what you have in common.{' '}
             <Text style={{ color: colors.accent, textDecorationLine: 'underline' }}>Play</Text>
@@ -98,7 +106,7 @@ export default function Discover() {
         </Pressable>
       )}
 
-      <Animated.View style={[{ flex: 1, marginHorizontal: 16 }, deckStyle]}>
+      <View style={{ flex: 1, marginHorizontal: 16 }}>
         {deck?.length === 0 && (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
             <Text style={s.h2}>That's everyone for now.</Text>
@@ -106,9 +114,22 @@ export default function Discover() {
             <Button title="Refresh" variant="ghost" small onPress={load} />
           </View>
         )}
-        {next && <BackCard key={`b${next.id}`} user={next} drag={drag} />}
-        {top && <TopCard key={`t${top.id}`} user={top} onSwipe={swipe} flingRef={flingRef} drag={drag} rise={rise} onOpen={() => setProfileOpen(true)} />}
-      </Animated.View>
+        {next && <BackCard key={`b${next.id}`} user={next} drag={drag} rise={rise} />}
+        {top && (
+          <TopCard
+            key={`t${top.id}`}
+            user={top}
+            onSwipe={swipe}
+            flingRef={flingRef}
+            drag={drag}
+            rise={rise}
+            onOpen={(photo) => {
+              setOpenPhoto(photo);
+              setProfileOpen(true);
+            }}
+          />
+        )}
+      </View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 28, paddingVertical: 16, opacity: top ? 1 : 0 }}>
         <ActionButton drag={drag} dir="pass" onPress={() => flingRef.current?.('pass')} />
@@ -117,11 +138,12 @@ export default function Discover() {
 
       <PullUpProfile
         user={top}
+        photoIndex={openPhoto}
         rise={rise}
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
         onDecide={(dir) => {
-          rise.value = withTiming(0, { duration: 220 });
+          rise.set(withTiming(0, GLIDE));
           setProfileOpen(false);
           // Let the profile slide away, then throw the card.
           setTimeout(() => flingRef.current?.(dir), 260);
@@ -130,12 +152,12 @@ export default function Discover() {
 
       <Modal visible={!!match} transparent animationType="fade" onRequestClose={() => setMatch(null)}>
         {match && (
-          <Animated.View entering={FadeIn.duration(200)} style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', padding: 24, gap: 14 }}>
+          <Animated.View
+            entering={FadeIn.duration(200)}
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', padding: 24, gap: 14 }}
+          >
             <Animated.View entering={ZoomIn.springify().damping(12)} style={{ alignSelf: 'center', marginBottom: 8 }}>
-              <Image
-                source={photoUrl(match.user.photo)}
-                style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 3, borderColor: colors.accent }}
-              />
+              <Image source={photoUrl(match.user.photo)} style={{ width: 140, height: 140, borderRadius: 70, borderWidth: 3, borderColor: colors.accent }} />
             </Animated.View>
             <Animated.Text entering={FadeInDown.delay(120).springify()} style={[s.h1, { color: colors.accent, textAlign: 'center' }]}>
               You're both down.

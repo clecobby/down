@@ -4,31 +4,53 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import { GestureDetector, useCompetingGestures, usePanGesture, useTapGesture } from 'react-native-gesture-handler';
-import Animated, { Extrapolation, interpolate, useAnimatedReaction, useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
+import Animated, { Easing, Extrapolation, interpolate, useAnimatedReaction, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { scheduleOnRN } from 'react-native-worklets';
 import { colors } from '../lib/theme';
 import { photoUrl } from '../lib/api';
 
 export const THRESHOLD = 110;
-const SNAP_BACK = { damping: 16, stiffness: 190, mass: 0.9 };
+// Glide, don't bounce: every settle uses an ease-out, no springs.
+export const GLIDE = { duration: 260, easing: Easing.out(Easing.cubic) };
 
-const tick = () => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-const thud = (dir) =>
-  dir === 'like' ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium) : Haptics.selectionAsync();
+// One soft tap when a like lands; nothing on pass, nothing while dragging.
+const softTap = (dir) => dir === 'like' && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
 export const distanceLabel = (u) => (u.distanceKm != null ? ` · ${u.distanceKm <= 1 ? '< 1' : `~${u.distanceKm}`} km` : '');
+export const photosOfUser = (u) => (u.photos?.length ? u.photos : u.photo ? [u.photo] : []);
+
+// Photos sit side by side and slide like a carousel when `index` changes.
+function Photos({ user, index }) {
+  const photos = photosOfUser(user);
+  const [w, setW] = useState(0);
+  const x = useSharedValue(0);
+  useEffect(() => {
+    x.set(withTiming(-index * w, GLIDE));
+  }, [index, w, x]);
+  const strip = useAnimatedStyle(() => ({ transform: [{ translateX: x.get() }] }));
+
+  if (!photos.length)
+    return (
+      <View style={[StyleSheet.absoluteFill, st.noPhoto]}>
+        <Text style={st.initial}>{user.name[0]}</Text>
+      </View>
+    );
+  return (
+    <View style={StyleSheet.absoluteFill} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+      <Animated.View style={[{ flexDirection: 'row', height: '100%', width: w * photos.length }, strip]}>
+        {photos.map((p, i) => (
+          <Image key={p + i} source={photoUrl(p)} style={{ width: w, height: '100%' }} contentFit="cover" transition={120} />
+        ))}
+      </Animated.View>
+    </View>
+  );
+}
 
 function CardBody({ user, index = 0, showHint }) {
-  const photos = user.photos?.length ? user.photos : user.photo ? [user.photo] : [];
+  const photos = photosOfUser(user);
   return (
     <>
-      {photos.length ? (
-        <Image source={photoUrl(photos[index])} style={StyleSheet.absoluteFill} contentFit="cover" transition={120} />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, st.noPhoto]}>
-          <Text style={st.initial}>{user.name[0]}</Text>
-        </View>
-      )}
+      <Photos user={user} index={index} />
       {photos.length > 1 && (
         <View style={st.bars} pointerEvents="none">
           {photos.map((p, i) => (
@@ -62,11 +84,13 @@ function CardBody({ user, index = 0, showHint }) {
   );
 }
 
-// The card underneath rises and brightens as the top card is dragged away. `drag` is the top card's x offset.
-export function BackCard({ user, drag }) {
+// The card underneath rises as the top card is thrown away. It stays hidden while a profile is being
+// pulled up, so nobody else shows through.
+export function BackCard({ user, drag, rise }) {
   const style = useAnimatedStyle(() => {
-    const p = interpolate(Math.abs(drag.value), [0, THRESHOLD * 1.5], [0, 1], Extrapolation.CLAMP);
-    return { transform: [{ scale: 0.93 + 0.07 * p }, { translateY: 16 * (1 - p) }], opacity: 0.55 + 0.45 * p };
+    const p = interpolate(Math.abs(drag.get()), [0, THRESHOLD * 1.5], [0, 1], Extrapolation.CLAMP);
+    const hidden = Math.min(1, rise.get() * 6);
+    return { transform: [{ scale: 0.93 + 0.07 * p }, { translateY: 16 * (1 - p) }], opacity: (0.55 + 0.45 * p) * (1 - hidden) };
   });
   return (
     <Animated.View style={[st.card, style]}>
@@ -75,40 +99,41 @@ export function BackCard({ user, drag }) {
   );
 }
 
-// The draggable top card. flingRef.current(dir) lets the ✕ / ♥ buttons trigger the same exit.
-// Each card owns its position (so a new card always starts centered) and mirrors it into `drag`
-// for the card underneath and the action buttons.
-// `rise` (0 → 1) is how far the full profile has been pulled up; dragging up drives it directly, like scrolling.
+// The draggable top card.
+// - drag sideways to like/pass; flingRef.current(dir) lets the ✕ / ♥ buttons do the same
+// - tap the right/left half to slide through photos
+// - drag up to pull the full profile over the card (`rise` 0 → 1 follows the finger, like scrolling);
+//   onOpen(photoIndex) opens it on the photo you were looking at
 export function TopCard({ user, onSwipe, flingRef, drag, rise, onOpen }) {
   const { width, height } = useWindowDimensions();
   const [photoIndex, setPhotoIndex] = useState(0);
-  const photoCount = user.photos?.length || 1;
-  // Tap the left/right side of the card to flip through photos.
-  const flip = (right) => setPhotoIndex((i) => Math.min(photoCount - 1, Math.max(0, i + (right ? 1 : -1))));
+  const photoCount = Math.max(1, photosOfUser(user).length);
+  const flip = (forward) => setPhotoIndex((i) => (forward ? (i + 1) % photoCount : Math.max(0, i - 1)));
+  const open = () => onOpen(photoIndex);
+
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
   const tiltSign = useSharedValue(1); // grabbed in the lower half → tilt the other way, like a real card
-  const armed = useSharedValue(false); // past the threshold (for the haptic tick)
   const mode = useSharedValue(0); // 0 = undecided, 1 = swiping sideways, 2 = pulling the profile up
+  const cardW = useSharedValue(width);
   const pullRange = height * 0.7;
 
-  const openProfile = (velocity = 0) => {
+  const openProfile = () => {
     'worklet';
-    rise.set(withSpring(1, { damping: 22, stiffness: 190, velocity: -velocity / pullRange }));
-    scheduleOnRN(onOpen);
+    rise.set(withTiming(1, GLIDE));
+    scheduleOnRN(open);
   };
-
 
   const fling = (dir, vx = 0, vy = 0) => {
     'worklet';
     const sign = dir === 'like' ? 1 : -1;
     const toX = sign * width * 1.4;
-    // Faster throws leave faster; keep it between 160 and 320 ms.
+    // Faster throws leave faster; keep it between 180 and 320 ms.
     const speed = Math.max(Math.abs(vx), 1400);
-    const duration = Math.min(320, Math.max(160, (Math.abs(toX - tx.value) / speed) * 1000));
-    ty.value = withTiming(ty.value + vy * (duration / 1000) * 0.5, { duration });
-    tx.value = withTiming(toX, { duration }, () => scheduleOnRN(onSwipe, dir));
-    scheduleOnRN(thud, dir);
+    const duration = Math.min(320, Math.max(180, (Math.abs(toX - tx.value) / speed) * 1000));
+    ty.value = withTiming(ty.value + vy * (duration / 1000) * 0.4, { duration, easing: Easing.out(Easing.quad) });
+    tx.value = withTiming(toX, { duration, easing: Easing.out(Easing.quad) }, () => scheduleOnRN(onSwipe, dir));
+    scheduleOnRN(softTap, dir);
   };
 
   const pan = usePanGesture({
@@ -117,40 +142,42 @@ export function TopCard({ user, onSwipe, flingRef, drag, rise, onOpen }) {
       mode.value = 0;
     },
     onUpdate: (e) => {
-      // Lock the direction once the finger has clearly moved.
+      // Lock the direction once the finger has clearly moved, so a swipe never half-opens the profile.
       if (mode.value === 0 && Math.max(Math.abs(e.translationX), Math.abs(e.translationY)) > 10)
         mode.value = e.translationY < 0 && Math.abs(e.translationY) > Math.abs(e.translationX) * 1.2 ? 2 : 1;
       if (mode.value === 2) {
+        // The card stays put; only the profile comes up over it.
         rise.set(Math.min(1, Math.max(0, -e.translationY / pullRange)));
-        ty.value = e.translationY * 0.12;
         return;
       }
       tx.value = e.translationX;
       ty.value = e.translationY;
-      const past = Math.abs(e.translationX) > THRESHOLD;
-      if (past !== armed.value) {
-        armed.value = past;
-        if (past) scheduleOnRN(tick);
-      }
     },
     onDeactivate: (e) => {
-      armed.value = false;
       if (mode.value === 2) {
-        ty.value = withSpring(0, SNAP_BACK);
-        // Past a quarter of the way, or flicked up: snap open. Otherwise fall back.
-        if (rise.get() > 0.25 || e.velocityY < -600) openProfile(e.velocityY);
-        else rise.set(withSpring(0, SNAP_BACK));
+        // Past a quarter of the way, or flicked up: glide open. Otherwise glide back down.
+        if (rise.get() > 0.25 || e.velocityY < -600) openProfile();
+        else rise.set(withTiming(0, GLIDE));
         return;
       }
       const thrown = Math.abs(e.velocityX) > 800 && Math.sign(e.velocityX) === Math.sign(tx.value || e.velocityX);
       if (Math.abs(tx.value) > THRESHOLD || thrown) {
         fling((tx.value || e.velocityX) > 0 ? 'like' : 'pass', e.velocityX, e.velocityY);
       } else {
-        tx.value = withSpring(0, { ...SNAP_BACK, velocity: e.velocityX });
-        ty.value = withSpring(0, { ...SNAP_BACK, velocity: e.velocityY });
+        tx.value = withTiming(0, GLIDE);
+        ty.value = withTiming(0, GLIDE);
       }
     },
   });
+
+  // Tap the right half for the next photo, the left half for the previous one.
+  const tap = useTapGesture({
+    maxDistance: 10,
+    onActivate: (e) => {
+      scheduleOnRN(flip, e.x > cardW.value / 2);
+    },
+  });
+  const gesture = useCompetingGestures(pan, tap);
 
   useAnimatedReaction(
     () => tx.value,
@@ -163,30 +190,19 @@ export function TopCard({ user, onSwipe, flingRef, drag, rise, onOpen }) {
     transform: [
       { translateX: tx.value },
       { translateY: ty.value },
-      { rotate: `${interpolate(tx.value, [-width, width], [-18, 18]) * tiltSign.value}deg` },
+      { rotate: `${interpolate(tx.value, [-width, width], [-16, 16]) * tiltSign.value}deg` },
     ],
   }));
   const glow = useAnimatedStyle(() => ({ opacity: interpolate(tx.value, [0, THRESHOLD * 1.6], [0, 0.45], Extrapolation.CLAMP) }));
   const shade = useAnimatedStyle(() => ({ opacity: interpolate(tx.value, [-THRESHOLD * 1.6, 0], [0.4, 0], Extrapolation.CLAMP) }));
   const likeStyle = useAnimatedStyle(() => {
     const p = interpolate(tx.value, [20, THRESHOLD], [0, 1], Extrapolation.CLAMP);
-    return { opacity: p, transform: [{ rotate: '-14deg' }, { scale: 0.7 + 0.3 * p }] };
+    return { opacity: p, transform: [{ rotate: '-12deg' }, { scale: 0.85 + 0.15 * p }] };
   });
   const passStyle = useAnimatedStyle(() => {
     const p = interpolate(tx.value, [-THRESHOLD, -20], [1, 0], Extrapolation.CLAMP);
-    return { opacity: p, transform: [{ rotate: '14deg' }, { scale: 0.7 + 0.3 * p }] };
+    return { opacity: p, transform: [{ rotate: '12deg' }, { scale: 0.85 + 0.15 * p }] };
   });
-
-  // Tap: bottom of the card opens the full profile; left/right side flips photos.
-  const cardH = useSharedValue(1);
-  const tap = useTapGesture({
-    maxDistance: 10,
-    onActivate: (e) => {
-      if (e.y > cardH.value * 0.65) openProfile();
-      else scheduleOnRN(flip, e.x > width / 2);
-    },
-  });
-  const gesture = useCompetingGestures(pan, tap);
 
   useEffect(() => {
     flingRef.current = fling;
@@ -194,7 +210,7 @@ export function TopCard({ user, onSwipe, flingRef, drag, rise, onOpen }) {
 
   return (
     <GestureDetector gesture={gesture}>
-      <Animated.View style={[st.card, st.shadow, cardStyle]} onLayout={(e) => (cardH.value = e.nativeEvent.layout.height)}>
+      <Animated.View style={[st.card, st.shadow, cardStyle]} onLayout={(e) => (cardW.value = e.nativeEvent.layout.width)}>
         <CardBody user={user} index={photoIndex} showHint />
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, glow]}>
           <LinearGradient colors={['rgba(255,45,85,0.0)', colors.accent]} start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 0.4 }} style={StyleSheet.absoluteFill} />
@@ -226,8 +242,16 @@ const st = StyleSheet.create({
   barOn: { backgroundColor: '#fff' },
   stamp: { position: 'absolute', top: 36, paddingHorizontal: 14, paddingVertical: 4, borderWidth: 4, borderRadius: 12, fontSize: 34, fontWeight: '900', letterSpacing: 2 },
   smiley: {
-    position: 'absolute', top: 30, left: 22, alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 22, borderWidth: 4, borderColor: colors.accent, backgroundColor: 'rgba(255,45,85,0.18)',
+    position: 'absolute',
+    top: 30,
+    left: 22,
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 22,
+    borderWidth: 4,
+    borderColor: colors.accent,
+    backgroundColor: 'rgba(255,45,85,0.18)',
   },
   smileyFace: { fontSize: 58, lineHeight: 66 },
   smileyText: { color: colors.accent, fontSize: 20, fontWeight: '900', letterSpacing: 2 },

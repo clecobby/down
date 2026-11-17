@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { db, now, ageFrom, getSetting, photosOf, publicUser, selfUser } from './db.js';
 import { requireAuth, requireIdentity } from './auth.js';
 import { deletePhoto, processImage, savePhoto, uploadDir } from './storage.js';
@@ -22,7 +23,7 @@ const upload = multer({
   fileFilter: (req, file, cb) => cb(null, /^image\/(jpeg|png|webp|heic|heif)$/.test(file.mimetype)),
 });
 
-const app = express();
+export const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }));
 app.use(express.json());
 app.use('/uploads', express.static(uploadDir));
@@ -276,9 +277,48 @@ app.get('/api/matches', requireAuth, (req, res) => {
       createdAt: r.matched_at,
       lastMessage: r.last_body,
       lastAt: r.last_at,
+      bothDown: downState(r.match_id, req.user.id).both,
       user: publicUser(r, req.user),
     })),
   );
+});
+
+// ---------- "down" signal ----------
+// Each person can privately say they're down. The other person only learns it when both have said it —
+// so nobody is exposed or turned down. Signals last 12 hours and can be withdrawn anytime.
+const DOWN_TTL = 12 * 60 * 60 * 1000;
+
+function downState(matchId, meId) {
+  const live = db.prepare('SELECT user_id, created_at, expires_at FROM down_signals WHERE match_id = ? AND expires_at > ?').all(matchId, now());
+  const mine = live.find((s) => s.user_id === meId);
+  const both = live.length === 2;
+  return {
+    mine: !!mine,
+    mineExpiresAt: mine?.expires_at ?? null,
+    both,
+    bothSince: both ? Math.max(...live.map((s) => s.created_at)) : null,
+  };
+}
+
+app.post('/api/matches/:id/down', requireAuth, (req, res) => {
+  const m = loadMatch(req, res);
+  if (!m) return;
+  const t = now();
+  const upsert = db.prepare(
+    'INSERT INTO down_signals (match_id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(match_id, user_id) DO UPDATE SET created_at = excluded.created_at, expires_at = excluded.expires_at',
+  );
+  upsert.run(m.id, req.user.id, t, t + DOWN_TTL);
+  // Testing only: demo profiles are always down too.
+  const otherId = m.a === req.user.id ? m.b : m.a;
+  if (demoMode() && db.prepare('SELECT cognito_sub IS NULL demo FROM users WHERE id = ?').get(otherId)?.demo) upsert.run(m.id, otherId, t, t + DOWN_TTL);
+  res.json(downState(m.id, req.user.id));
+});
+
+app.delete('/api/matches/:id/down', requireAuth, (req, res) => {
+  const m = loadMatch(req, res);
+  if (!m) return;
+  db.prepare('DELETE FROM down_signals WHERE match_id = ? AND user_id = ?').run(m.id, req.user.id);
+  res.json(downState(m.id, req.user.id));
 });
 
 app.get('/api/matches/:id', requireAuth, (req, res) => {
@@ -293,6 +333,7 @@ app.get('/api/matches/:id', requireAuth, (req, res) => {
     user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(otherId), req.user),
     messages: messages.map((x) => ({ id: x.id, senderId: x.sender_id, body: x.body, createdAt: x.created_at })),
     meetups: meetups.map((x) => ({ id: x.id, proposerId: x.proposer_id, place: x.place, time: x.time, status: x.status, createdAt: x.created_at })),
+    down: downState(m.id, req.user.id),
   });
 });
 
@@ -368,4 +409,7 @@ if (process.env.STATIC_DIR) {
   app.get(/^\/(?!api\/|uploads\/).*/, (req, res) => res.sendFile(path.join(process.env.STATIC_DIR, 'index.html')));
 }
 
-app.listen(PORT, process.env.HOST || '0.0.0.0', () => console.log(`API on http://localhost:${PORT}`));
+// Listen only when run directly (node src/server.js); tests and other entry points import `app`.
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
+  app.listen(PORT, process.env.HOST || '0.0.0.0', () => console.log(`API on http://localhost:${PORT}`));
+}

@@ -85,6 +85,15 @@ db.exec(`
     created_at  INTEGER NOT NULL
   );
 
+  -- "I'm down" signals between two matched people. Private until both have sent one; they expire.
+  CREATE TABLE IF NOT EXISTS down_signals (
+    match_id   INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    PRIMARY KEY (match_id, user_id)
+  );
+
   -- Runtime settings the admin dashboard can change (e.g. demo mode).
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,

@@ -24,10 +24,10 @@ export default function ProfileSheet({ user, onClose, onDecide }) {
 }
 
 // The scrollable full profile: photo gallery, what you have in common, details. Extra props go to the ScrollView.
-export function ProfileContent({ user, onClose, ...scrollProps }) {
+export function ProfileContent({ user, onClose, initialPage = 0, ...scrollProps }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(initialPage);
   const photos = user.photos?.length ? user.photos : user.photo ? [user.photo] : [];
   const photoH = Math.round(width * 1.25);
   const common = user.inCommon || [];
@@ -39,6 +39,7 @@ export function ProfileContent({ user, onClose, ...scrollProps }) {
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
+          contentOffset={{ x: initialPage * width, y: 0 }}
           onMomentumScrollEnd={(e) => setPage(Math.round(e.nativeEvent.contentOffset.x / width))}
         >
           {photos.map((p, i) => (

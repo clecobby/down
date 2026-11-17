@@ -1,5 +1,5 @@
 // Adds demo profiles to swipe on. They have no Cognito account, so nobody can log in as them.
-import { db, now } from './db.js';
+import { now, sql } from './db.js';
 import { TURN_ONS } from './turnons.js';
 
 // name, username, gender, into, birthdate, bio, photo, available, [lat, lng, county, region, country]
@@ -155,17 +155,21 @@ for (const area of Object.values(AREAS)) {
 
 const t = now();
 // password_hash is set explicitly: databases created before Cognito still require it.
-const insert = db.prepare(`INSERT INTO users
-  (email, username, password_hash, name, birthdate, gender, interested_in, bio, photo, city, available_now,
-   lat, lng, county, region, country, last_active, created_at)
-  VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-const exists = db.prepare('SELECT 1 FROM users WHERE username = ?');
+const insert = (...p) =>
+  sql.run(
+    `INSERT INTO users
+      (email, username, password_hash, name, birthdate, gender, interested_in, bio, photo, city, available_now,
+       lat, lng, county, region, country, last_active, created_at)
+     VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ...p,
+  );
+const exists = (username) => sql.one('SELECT 1 FROM users WHERE username = ?', username);
 
 let added = 0;
 for (const [name, username, gender, interested, birth, bio, pic, avail, [lat, lng, county, region, country]] of people) {
-  if (exists.get(username)) continue;
+  if (await exists(username)) continue;
   added++;
-  insert.run(
+  await insert(
     `${username}@demo.down.app`,
     username,
     name,
@@ -196,19 +200,23 @@ const TAG_SETS = [
   ['Tonight', 'Can host'],
   ['Discreet', 'Regular thing'],
 ];
-const extras = db.prepare("UPDATE users SET photos = ?, tags = ?, height_cm = ? WHERE username = ? AND cognito_sub IS NULL AND COALESCE(photos, '') = ''");
 let filled = 0;
-people.forEach(([, username, gender, , , , pic], i) => {
+for (const [i, [, username, gender, , , , pic]] of people.entries()) {
   const photos = [`https://randomuser.me/api/portraits/${pic}.jpg`, ...[1, 2, 3].map((n) => `https://picsum.photos/seed/${username}-${n}/600/800`)];
   const height = (gender === 'man' ? 172 : gender === 'woman' ? 158 : 165) + ((i * 7) % 20);
-  filled += extras.run(JSON.stringify(photos), TAG_SETS[i % TAG_SETS.length].join(','), height, username).changes;
-});
+  filled += (
+    await sql.run(
+      "UPDATE users SET photos = ?, tags = ?, height_cm = ? WHERE username = ? AND cognito_sub IS NULL AND COALESCE(photos, '') = ''",
+      JSON.stringify(photos), TAG_SETS[i % TAG_SETS.length].join(','), height, username,
+    )
+  ).changes;
+}
 
 // Turn-ons for demo profiles that haven't played the game: 5–10 picks each, varied but repeatable.
-const setTurnOns = db.prepare("UPDATE users SET turn_ons = ? WHERE username = ? AND cognito_sub IS NULL AND COALESCE(turn_ons, '') = ''");
 let played = 0;
-people.forEach(([, username], i) => {
+for (const [i, [, username]] of people.entries()) {
   const picks = TURN_ONS.filter((_, j) => (i * 7 + j * 3) % 5 < 2 + (i % 3)).map((t) => t.id);
-  played += setTurnOns.run(picks.join(','), username).changes;
-});
+  played += (await sql.run("UPDATE users SET turn_ons = ? WHERE username = ? AND cognito_sub IS NULL AND COALESCE(turn_ons, '') = ''", picks.join(','), username)).changes;
+}
 console.log(`Added ${added} demo profiles (${people.length - added} already there), filled extras for ${filled}, turn-ons for ${played}.`);
+await sql.end();

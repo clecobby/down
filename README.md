@@ -39,15 +39,26 @@ Seeded profiles are swipe-only demo data; nobody can log in as them.
 | `DB_PATH` | backend/down.db |
 | `VITE_API_URL` (frontend) | http://localhost:4000 |
 
-## Production (single AWS server)
+## Production (serverless, ~$0–1/month at low traffic)
 
-Live at **https://184-193-84-159.sslip.io** (EC2 `t4g.small`, us-east-1, Elastic IP `184.193.84.159`, instance `i-0a5e94e032614c5c1`).
-Caddy serves HTTPS (auto Let's Encrypt via sslip.io) and proxies to the Node app, which serves both the API and the built web app.
+Live at **https://d2lfawokdyd1nt.cloudfront.net** (website + API on one address).
+
+| Piece | Service |
+|---|---|
+| API | Lambda `down-api` (Node 24, arm64) behind a function URL that only CloudFront may call (secret origin header) |
+| Database | Aurora DSQL (serverless Postgres, IAM auth, app role `down_app`); local dev/tests use SQLite |
+| Website | S3 `down-web-<account>` + CloudFront (SPA routing function, security headers policy) |
+| Photos | S3 `down-photos-<account>` + CloudFront, re-encoded with metadata stripped |
+| Login | Cognito user pool `us-east-1_Lbp099d7v` (web: Amplify, mobile: Cognito API) |
 
 ```bash
-deploy/deploy.sh 184.193.84.159          # build + ship + restart (uses ~/.ssh/down-web.pem)
-ssh -i ~/.ssh/down-web.pem ubuntu@184.193.84.159
-sudo journalctl -u down -f               # app logs
+deploy/deploy-aws.sh             # build + deploy API and website (deploy/deploy-aws.sh api|web for one)
+cd backend && npm test           # 19 tests on SQLite
+DSQL_HOST=<cluster>.dsql.us-east-1.on.aws node --experimental-test-module-mocks --test test/flow.test.js   # full flow against DSQL
+DSQL_HOST=… npm run migrate      # create/upgrade DSQL tables
+aws logs tail /aws/lambda/down-api --follow   # API logs
 ```
-Data: `/var/lib/down/down.db` (SQLite) and `/opt/down/backend/uploads`. Config: `/etc/down.env`.
-SSH is only open to the admin IP in security group `down-web-sg` — update it if your IP changes.
+Lambda settings (DSQL host, Cognito ids, photo bucket, origin secret, DEMO_MODE) live in the function's configuration.
+Uploads are capped at 4 MB on Lambda (request size limit).
+
+The old single-server setup (`deploy/deploy.sh`, EC2 `i-0a5e94e032614c5c1`) is **stopped**, kept for rollback.

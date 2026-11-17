@@ -12,7 +12,7 @@ const CDN = process.env.PHOTOS_CDN; // e.g. d123.cloudfront.net
 const s3 = BUCKET ? new S3Client({ region: process.env.AWS_REGION || 'us-east-1' }) : null;
 
 export const uploadDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'uploads');
-await fs.mkdir(uploadDir, { recursive: true });
+if (!s3) await fs.mkdir(uploadDir, { recursive: true }); // Lambda's disk is read-only; it always uses S3
 
 // Re-encode every upload: proves it's really an image, applies the camera rotation, caps the size,
 // and drops all metadata — phone photos often carry the exact GPS spot where they were taken.

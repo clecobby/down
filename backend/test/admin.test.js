@@ -30,7 +30,7 @@ mock.module('@aws-sdk/client-cognito-identity-provider', {
 });
 
 const { admin } = await import('../src/admin.js');
-const { db, now } = await import('../src/db.js');
+const { sql, now } = await import('../src/db.js');
 
 let base, server;
 before(async () => {
@@ -64,9 +64,9 @@ test('users list filters and searches', async () => {
 });
 
 test('report → suspend hides the person and logs the action; restore brings them back', async () => {
-  const reporter = db.prepare("SELECT id FROM users WHERE username = 'leo91'").get().id;
-  const target = db.prepare("SELECT id FROM users WHERE username = 'maya_m'").get().id;
-  db.prepare('INSERT INTO reports (reporter_id, reported_id, reason, created_at) VALUES (?, ?, ?, ?)').run(reporter, target, 'Fake profile', now());
+  const reporter = (await sql.one("SELECT id FROM users WHERE username = 'leo91'")).id;
+  const target = (await sql.one("SELECT id FROM users WHERE username = 'maya_m'")).id;
+  await sql.run('INSERT INTO reports (reporter_id, reported_id, reason, created_at) VALUES (?, ?, ?, ?)', reporter, target, 'Fake profile', now());
 
   const open = (await call('/reports')).body;
   assert.equal(open.length, 1);
@@ -95,7 +95,7 @@ test('demo mode toggles at runtime', async () => {
 });
 
 test('delete removes the profile', async () => {
-  const id = db.prepare("SELECT id FROM users WHERE username = 'jade_h'").get().id;
+  const id = (await sql.one("SELECT id FROM users WHERE username = 'jade_h'")).id;
   assert.equal((await call(`/users/${id}`, 'DELETE')).status, 200);
   assert.equal((await call(`/users/${id}`)).status, 404);
 });

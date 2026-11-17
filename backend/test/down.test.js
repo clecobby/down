@@ -9,11 +9,11 @@ process.env.DB_PATH = path.join(os.tmpdir(), `down-signal-test-${process.pid}.db
 process.env.DEMO_MODE = '0';
 
 // Stand in for Cognito: the x-test-user header says who is calling.
-const { db, now } = await import('../src/db.js');
+const { sql, now } = await import('../src/db.js');
 mock.module('../src/auth.js', {
   namedExports: {
-    requireAuth: (req, res, next) => {
-      req.user = db.prepare('SELECT * FROM users WHERE id = ?').get(Number(req.headers['x-test-user']));
+    requireAuth: async (req, res, next) => {
+      req.user = await sql.one('SELECT * FROM users WHERE id = ?', Number(req.headers['x-test-user']));
       req.identity = { isAdmin: false };
       next();
     },
@@ -25,12 +25,16 @@ const { app } = await import('../src/server.js');
 
 let base, server, a, b, matchId;
 before(async () => {
-  const add = db.prepare(
-    "INSERT INTO users (email, username, password_hash, name, birthdate, gender, interested_in, last_active, created_at) VALUES (?, ?, '', ?, '1990-01-01', 'man', 'woman', ?, ?)",
-  );
-  a = Number(add.run('a@x', 'alice_t', 'A', now(), now()).lastInsertRowid);
-  b = Number(add.run('b@x', 'bob_t', 'B', now(), now()).lastInsertRowid);
-  matchId = Number(db.prepare('INSERT INTO matches (a, b, created_at) VALUES (?, ?, ?)').run(a, b, now()).lastInsertRowid);
+  const add = async (email, username, name) =>
+    (
+      await sql.run(
+        "INSERT INTO users (email, username, password_hash, name, birthdate, gender, interested_in, last_active, created_at) VALUES (?, ?, '', ?, '1990-01-01', 'man', 'woman', ?, ?) RETURNING id",
+        email, username, name, now(), now(),
+      )
+    ).rows[0].id;
+  a = await add('a@x', 'alice_t', 'A');
+  b = await add('b@x', 'bob_t', 'B');
+  matchId = (await sql.run('INSERT INTO matches (a, b, created_at) VALUES (?, ?, ?) RETURNING id', a, b, now())).rows[0].id;
   await new Promise((r) => (server = app.listen(0, r)));
   base = `http://localhost:${server.address().port}/api`;
 });
@@ -61,15 +65,16 @@ test('withdrawing hides it again; expired signals do not count', async () => {
   await as(a, `/matches/${matchId}/down`, 'DELETE');
   assert.equal((await as(b, `/matches/${matchId}`)).down.both, false);
   await as(a, `/matches/${matchId}/down`, 'POST');
-  db.prepare('UPDATE down_signals SET expires_at = ? WHERE user_id = ?').run(now() - 1, b);
+  await sql.run('UPDATE down_signals SET expires_at = ? WHERE user_id = ?', now() - 1, b);
   assert.equal((await as(a, `/matches/${matchId}`)).down.both, false);
 });
 
 test('only people in the match can signal', async () => {
-  const c = Number(
-    db.prepare("INSERT INTO users (email, username, password_hash, name, birthdate, gender, interested_in, last_active, created_at) VALUES ('c@x', 'carol_t', '', 'C', '1990-01-01', 'woman', 'man', 0, 0)").run()
-      .lastInsertRowid,
-  );
+  const c = (
+    await sql.run(
+      "INSERT INTO users (email, username, password_hash, name, birthdate, gender, interested_in, last_active, created_at) VALUES ('c@x', 'carol_t', '', 'C', '1990-01-01', 'woman', 'man', 0, 0) RETURNING id",
+    )
+  ).rows[0].id;
   const r = await fetch(`${base}/matches/${matchId}/down`, { method: 'POST', headers: { 'x-test-user': String(c) } });
   assert.equal(r.status, 404);
 });

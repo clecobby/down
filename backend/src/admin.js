@@ -6,7 +6,7 @@ import {
   AdminUserGlobalSignOutCommand,
   CognitoIdentityProviderClient,
 } from '@aws-sdk/client-cognito-identity-provider';
-import { ageFrom, db, getSetting, now, photosOf, setSetting } from './db.js';
+import { ageFrom, getSetting, now, photosOf, setSetting, sql } from './db.js';
 import { requireAdmin } from './auth.js';
 import { deletePhoto } from './storage.js';
 
@@ -31,16 +31,14 @@ async function cognitoCall(Command, sub) {
   }
 }
 
-const log = (req, action, target, detail = '') =>
-  db.prepare('INSERT INTO admin_log (admin, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(
-    req.identity.email,
+const log = async (req, action, target, detail = '') =>
+  await sql.run('INSERT INTO admin_log (admin, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?)', req.identity.email,
     action,
     target == null ? null : String(target),
     detail,
-    now(),
-  );
+    now(),);
 
-const count = (sql, ...args) => db.prepare(sql).get(...args).n;
+const count = async (text, ...args) => Number((await sql.one(text, ...args)).n);
 
 const adminUser = (u) => ({
   id: u.id,
@@ -65,152 +63,149 @@ const adminUser = (u) => ({
   lastActive: u.last_active,
 });
 
-admin.get('/stats', (req, res) => {
+admin.get('/stats', async (req, res) => {
   const t = now();
   const real = 'cognito_sub IS NOT NULL';
   // 14 daily buckets (UTC days), oldest first.
   const start = Math.floor(t / DAY) * DAY - 13 * DAY;
   const days = [...Array(14)].map((_, i) => ({ day: new Date(start + i * DAY).toISOString().slice(0, 10), signups: 0, swipes: 0 }));
   const bucket = (ts) => days[Math.floor((ts - start) / DAY)];
-  for (const r of db.prepare(`SELECT created_at FROM users WHERE ${real} AND created_at >= ?`).all(start)) bucket(r.created_at).signups++;
-  for (const r of db.prepare('SELECT created_at FROM swipes WHERE created_at >= ?').all(start)) bucket(r.created_at).swipes++;
+  for (const r of await sql.all(`SELECT created_at FROM users WHERE ${real} AND created_at >= ?`, start)) bucket(r.created_at).signups++;
+  for (const r of await sql.all('SELECT created_at FROM swipes WHERE created_at >= ?', start)) bucket(r.created_at).swipes++;
 
   res.json({
-    realUsers: count(`SELECT count(*) n FROM users WHERE ${real}`),
-    demoProfiles: count('SELECT count(*) n FROM users WHERE cognito_sub IS NULL'),
-    suspended: count('SELECT count(*) n FROM users WHERE banned = 1'),
-    signups24h: count(`SELECT count(*) n FROM users WHERE ${real} AND created_at >= ?`, t - DAY),
-    signups7d: count(`SELECT count(*) n FROM users WHERE ${real} AND created_at >= ?`, t - 7 * DAY),
-    signupsPrev7d: count(`SELECT count(*) n FROM users WHERE ${real} AND created_at >= ? AND created_at < ?`, t - 14 * DAY, t - 7 * DAY),
-    active24h: count(`SELECT count(*) n FROM users WHERE ${real} AND last_active >= ?`, t - DAY),
-    swipes24h: count('SELECT count(*) n FROM swipes WHERE created_at >= ?', t - DAY),
-    likes24h: count("SELECT count(*) n FROM swipes WHERE dir = 'like' AND created_at >= ?", t - DAY),
-    matchesTotal: count('SELECT count(*) n FROM matches'),
-    matches24h: count('SELECT count(*) n FROM matches WHERE created_at >= ?', t - DAY),
-    messages24h: count('SELECT count(*) n FROM messages WHERE created_at >= ?', t - DAY),
-    meetupsAccepted: count("SELECT count(*) n FROM meetups WHERE status = 'accepted'"),
-    openReports: count("SELECT count(*) n FROM reports WHERE COALESCE(status, 'open') = 'open'"),
-    noPhoto: count(`SELECT count(*) n FROM users WHERE ${real} AND COALESCE(photo, '') = ''`),
-    noLocation: count(`SELECT count(*) n FROM users WHERE ${real} AND lat IS NULL`),
+    realUsers: await count(`SELECT count(*) n FROM users WHERE ${real}`),
+    demoProfiles: await count('SELECT count(*) n FROM users WHERE cognito_sub IS NULL'),
+    suspended: await count('SELECT count(*) n FROM users WHERE banned = 1'),
+    signups24h: await count(`SELECT count(*) n FROM users WHERE ${real} AND created_at >= ?`, t - DAY),
+    signups7d: await count(`SELECT count(*) n FROM users WHERE ${real} AND created_at >= ?`, t - 7 * DAY),
+    signupsPrev7d: await count(`SELECT count(*) n FROM users WHERE ${real} AND created_at >= ? AND created_at < ?`, t - 14 * DAY, t - 7 * DAY),
+    active24h: await count(`SELECT count(*) n FROM users WHERE ${real} AND last_active >= ?`, t - DAY),
+    swipes24h: await count('SELECT count(*) n FROM swipes WHERE created_at >= ?', t - DAY),
+    likes24h: await count("SELECT count(*) n FROM swipes WHERE dir = 'like' AND created_at >= ?", t - DAY),
+    matchesTotal: await count('SELECT count(*) n FROM matches'),
+    matches24h: await count('SELECT count(*) n FROM matches WHERE created_at >= ?', t - DAY),
+    messages24h: await count('SELECT count(*) n FROM messages WHERE created_at >= ?', t - DAY),
+    meetupsAccepted: await count("SELECT count(*) n FROM meetups WHERE status = 'accepted'"),
+    openReports: await count("SELECT count(*) n FROM reports WHERE COALESCE(status, 'open') = 'open'"),
+    noPhoto: await count(`SELECT count(*) n FROM users WHERE ${real} AND COALESCE(photo, '') = ''`),
+    noLocation: await count(`SELECT count(*) n FROM users WHERE ${real} AND lat IS NULL`),
     daily: days,
   });
 });
 
-admin.get('/users', (req, res) => {
+admin.get('/users', async (req, res) => {
   const q = `%${String(req.query.q || '').trim().toLowerCase()}%`;
   const kind = { real: 'u.cognito_sub IS NOT NULL', demo: 'u.cognito_sub IS NULL', suspended: 'u.banned = 1' }[req.query.kind] || '1=1';
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const offset = Number(req.query.offset) || 0;
   const where = `WHERE ${kind} AND (lower(u.username) LIKE ? OR lower(u.name) LIKE ? OR lower(u.email) LIKE ?)`;
-  const total = count(`SELECT count(*) n FROM users u ${where}`, q, q, q);
-  const rows = db
-    .prepare(
+  const total = await count(`SELECT count(*) n FROM users u ${where}`, q, q, q);
+  const rows = await sql.all(
       `SELECT u.*, (SELECT count(*) FROM reports r WHERE r.reported_id = u.id AND COALESCE(r.status, 'open') = 'open') AS open_reports
        FROM users u ${where} ORDER BY u.cognito_sub IS NULL, u.created_at DESC LIMIT ? OFFSET ?`,
-    )
-    .all(q, q, q, limit, offset);
+    q, q, q, limit, offset,
+  );
   res.json({ total, users: rows.map((u) => ({ ...adminUser(u), openReports: u.open_reports })) });
 });
 
-admin.get('/users/:id', (req, res) => {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+admin.get('/users/:id', async (req, res) => {
+  const u = await sql.one('SELECT * FROM users WHERE id = ?', req.params.id);
   if (!u) return res.status(404).json({ error: 'User not found' });
   res.json({
     ...adminUser(u),
     activity: {
-      swipes: count('SELECT count(*) n FROM swipes WHERE from_id = ?', u.id),
-      likesGiven: count("SELECT count(*) n FROM swipes WHERE from_id = ? AND dir = 'like'", u.id),
-      likesReceived: count("SELECT count(*) n FROM swipes WHERE to_id = ? AND dir = 'like'", u.id),
-      matches: count('SELECT count(*) n FROM matches WHERE a = ? OR b = ?', u.id, u.id),
-      messagesSent: count('SELECT count(*) n FROM messages WHERE sender_id = ?', u.id),
-      reportsMade: count('SELECT count(*) n FROM reports WHERE reporter_id = ?', u.id),
+      swipes: await count('SELECT count(*) n FROM swipes WHERE from_id = ?', u.id),
+      likesGiven: await count("SELECT count(*) n FROM swipes WHERE from_id = ? AND dir = 'like'", u.id),
+      likesReceived: await count("SELECT count(*) n FROM swipes WHERE to_id = ? AND dir = 'like'", u.id),
+      matches: await count('SELECT count(*) n FROM matches WHERE a = ? OR b = ?', u.id, u.id),
+      messagesSent: await count('SELECT count(*) n FROM messages WHERE sender_id = ?', u.id),
+      reportsMade: await count('SELECT count(*) n FROM reports WHERE reporter_id = ?', u.id),
     },
-    reports: db
-      .prepare(
-        `SELECT r.id, r.reason, r.created_at, COALESCE(r.status, 'open') status, p.username reporter
-         FROM reports r JOIN users p ON p.id = r.reporter_id WHERE r.reported_id = ? ORDER BY r.id DESC`,
-      )
-      .all(u.id),
+    reports: await sql.all(
+      `SELECT r.id, r.reason, r.created_at, COALESCE(r.status, 'open') status, p.username reporter
+       FROM reports r JOIN users p ON p.id = r.reporter_id WHERE r.reported_id = ? ORDER BY r.id DESC`,
+      u.id,
+    ),
   });
 });
 
 async function suspend(req, u, reason) {
-  db.prepare('UPDATE users SET banned = 1, banned_reason = ? WHERE id = ?').run(reason, u.id);
+  await sql.run('UPDATE users SET banned = 1, banned_reason = ? WHERE id = ?', reason, u.id);
   const login = await cognitoCall(AdminDisableUserCommand, u.cognito_sub);
   if (login === 'ok') await cognitoCall(AdminUserGlobalSignOutCommand, u.cognito_sub);
-  log(req, 'suspend', u.id, `${u.username}: ${reason} (login: ${login})`);
+  await log(req, 'suspend', u.id, `${u.username}: ${reason} (login: ${login})`);
   return login;
 }
 
 admin.post('/users/:id/suspend', async (req, res) => {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  const u = await sql.one('SELECT * FROM users WHERE id = ?', req.params.id);
   if (!u) return res.status(404).json({ error: 'User not found' });
   const reason = String(req.body?.reason || '').trim().slice(0, 300) || 'Suspended by admin';
   res.json({ ok: true, login: await suspend(req, u, reason) });
 });
 
 admin.post('/users/:id/restore', async (req, res) => {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  const u = await sql.one('SELECT * FROM users WHERE id = ?', req.params.id);
   if (!u) return res.status(404).json({ error: 'User not found' });
-  db.prepare("UPDATE users SET banned = 0, banned_reason = '' WHERE id = ?").run(u.id);
+  await sql.run("UPDATE users SET banned = 0, banned_reason = '' WHERE id = ?", u.id);
   const login = await cognitoCall(AdminEnableUserCommand, u.cognito_sub);
-  log(req, 'restore', u.id, `${u.username} (login: ${login})`);
+  await log(req, 'restore', u.id, `${u.username} (login: ${login})`);
   res.json({ ok: true, login });
 });
 
 admin.delete('/users/:id', async (req, res) => {
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  const u = await sql.one('SELECT * FROM users WHERE id = ?', req.params.id);
   if (!u) return res.status(404).json({ error: 'User not found' });
   if (u.cognito_sub && u.cognito_sub === req.identity.sub) return res.status(400).json({ error: "You can't delete your own account here" });
-  for (const p of photosOf(u)) deletePhoto(p);
-  db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+  await Promise.all(photosOf(u).map(deletePhoto));
+  await sql.run('DELETE FROM users WHERE id = ?', u.id);
   const login = await cognitoCall(AdminDeleteUserCommand, u.cognito_sub);
-  log(req, 'delete', u.id, `${u.username} (login: ${login})`);
+  await log(req, 'delete', u.id, `${u.username} (login: ${login})`);
   res.json({ ok: true, login });
 });
 
-admin.get('/reports', (req, res) => {
+admin.get('/reports', async (req, res) => {
   const status = ['open', 'dismissed', 'actioned'].includes(req.query.status) ? req.query.status : 'open';
-  const rows = db
-    .prepare(
+  const rows = await sql.all(
       `SELECT r.id, r.reason, r.created_at, r.resolved_at, COALESCE(r.status, 'open') status,
               p.id reporter_id, p.username reporter, t.id reported_id, t.username reported, t.name reported_name,
               t.banned reported_banned,
               (SELECT count(*) FROM reports x WHERE x.reported_id = t.id) reported_total
        FROM reports r JOIN users p ON p.id = r.reporter_id JOIN users t ON t.id = r.reported_id
        WHERE COALESCE(r.status, 'open') = ? ORDER BY r.id DESC LIMIT 200`,
-    )
-    .all(status);
+    status,
+  );
   res.json(rows);
 });
 
 admin.post('/reports/:id', async (req, res) => {
-  const r = db.prepare('SELECT * FROM reports WHERE id = ?').get(req.params.id);
+  const r = await sql.one('SELECT * FROM reports WHERE id = ?', req.params.id);
   if (!r) return res.status(404).json({ error: 'Report not found' });
   const action = req.body?.action;
   if (!['dismiss', 'suspend'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
   let login;
   if (action === 'suspend') {
-    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(r.reported_id);
+    const u = await sql.one('SELECT * FROM users WHERE id = ?', r.reported_id);
     login = await suspend(req, u, `Report #${r.id}: ${r.reason}`.slice(0, 300));
   }
-  db.prepare('UPDATE reports SET status = ?, resolved_at = ? WHERE id = ?').run(action === 'dismiss' ? 'dismissed' : 'actioned', now(), r.id);
-  log(req, `report-${action}`, r.reported_id, `report #${r.id}`);
+  await sql.run('UPDATE reports SET status = ?, resolved_at = ? WHERE id = ?', action === 'dismiss' ? 'dismissed' : 'actioned', now(), r.id);
+  await log(req, `report-${action}`, r.reported_id, `report #${r.id}`);
   res.json({ ok: true, login });
 });
 
-admin.get('/settings', (req, res) => {
-  res.json({ demoMode: getSetting('demo_mode', process.env.DEMO_MODE === '1' ? '1' : '0') === '1' });
+admin.get('/settings', async (req, res) => {
+  res.json({ demoMode: (await getSetting('demo_mode', process.env.DEMO_MODE === '1' ? '1' : '0')) === '1' });
 });
 
-admin.patch('/settings', (req, res) => {
+admin.patch('/settings', async (req, res) => {
   if (typeof req.body?.demoMode === 'boolean') {
-    setSetting('demo_mode', req.body.demoMode ? '1' : '0');
-    log(req, 'settings', null, `demo mode ${req.body.demoMode ? 'on' : 'off'}`);
+    await setSetting('demo_mode', req.body.demoMode ? '1' : '0');
+    await log(req, 'settings', null, `demo mode ${req.body.demoMode ? 'on' : 'off'}`);
   }
-  res.json({ demoMode: getSetting('demo_mode', '0') === '1' });
+  res.json({ demoMode: (await getSetting('demo_mode', '0')) === '1' });
 });
 
-admin.get('/log', (req, res) => {
-  res.json(db.prepare('SELECT * FROM admin_log ORDER BY id DESC LIMIT 100').all());
+admin.get('/log', async (req, res) => {
+  res.json(await sql.all('SELECT * FROM admin_log ORDER BY id DESC LIMIT 100'));
 });

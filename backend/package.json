@@ -7,15 +7,22 @@
     "dev": "node --env-file-if-exists=.env --watch src/server.js",
     "start": "node --env-file-if-exists=.env src/server.js",
     "seed": "node src/seed.js",
-    "test": "node --experimental-test-module-mocks --test test/"
+    "test": "node --experimental-test-module-mocks --test test/",
+    "migrate": "node scripts/migrate.js"
   },
   "dependencies": {
     "@aws-sdk/client-cognito-identity-provider": "^3.1170.0",
     "@aws-sdk/client-s3": "^3.1170.0",
+    "@aws-sdk/credential-providers": "^3.1170.0",
+    "@aws-sdk/dsql-signer": "^3.1170.0",
+    "@aws/aurora-dsql-node-postgres-connector": "^0.1.9",
+    "@codegenie/serverless-express": "^5.0.0",
     "aws-jwt-verify": "^5.2.1",
     "cors": "^2.8.5",
-    "express": "^4.21.2",
+    "express": "^5.3.0",
     "multer": "^2.5.0",
+    "pg": "^8.23.1",
+    "pg-connection-string": "^2.14.1",
     "sharp": "^0.35.5"
   }
 }

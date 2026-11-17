@@ -1,5 +1,5 @@
 import { CognitoJwtVerifier } from 'aws-jwt-verify';
-import { db, now } from './db.js';
+import { now, sql } from './db.js';
 
 // Login, signup, email verification and password reset are handled by Amazon Cognito.
 // The browser sends the Cognito ID token; we verify it against the user pool's keys and
@@ -10,8 +10,6 @@ const verifier = CognitoJwtVerifier.create({
   tokenUse: 'id',
 });
 
-const touch = db.prepare('UPDATE users SET last_active = ? WHERE id = ?');
-const findBySub = db.prepare('SELECT * FROM users WHERE cognito_sub = ?');
 
 async function identify(req) {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '');
@@ -37,10 +35,11 @@ export async function requireAuth(req, res, next) {
   } catch {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-  const user = findBySub.get(req.identity.sub);
+  const user = await sql.one('SELECT * FROM users WHERE cognito_sub = ?', req.identity.sub);
   if (!user) return res.status(404).json({ error: 'Profile not set up', needsProfile: true });
   if (user.banned) return res.status(403).json({ error: 'Your account has been suspended.', suspended: true });
-  touch.run(now(), user.id);
+  // Don't hold the request for this; at most one write a minute.
+  if (now() - user.last_active > 60_000) sql.run('UPDATE users SET last_active = ? WHERE id = ?', now(), user.id).catch(() => {});
   req.user = user;
   next();
 }

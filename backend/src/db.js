@@ -83,16 +83,39 @@ db.exec(`
     reason      TEXT NOT NULL,
     created_at  INTEGER NOT NULL
   );
+
+  -- Runtime settings the admin dashboard can change (e.g. demo mode).
+  CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
+
+  -- Who did what in the admin dashboard.
+  CREATE TABLE IF NOT EXISTS admin_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin      TEXT NOT NULL,              -- admin's email
+    action     TEXT NOT NULL,
+    target     TEXT,
+    detail     TEXT,
+    created_at INTEGER NOT NULL
+  );
 `);
 
 // Add columns to databases created before they existed.
 const cols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
-for (const [name, type] of [['photos', "TEXT DEFAULT ''"], ['tags', "TEXT DEFAULT ''"], ['height_cm', 'INTEGER'], ['cognito_sub', 'TEXT'], ['username', 'TEXT'], ['lat', 'REAL'], ['lng', 'REAL'], ['county', "TEXT DEFAULT ''"], ['region', "TEXT DEFAULT ''"], ['country', "TEXT DEFAULT ''"]]) {
+for (const [name, type] of [['banned', 'INTEGER DEFAULT 0'], ['banned_reason', "TEXT DEFAULT ''"], ['photos', "TEXT DEFAULT ''"], ['tags', "TEXT DEFAULT ''"], ['height_cm', 'INTEGER'], ['cognito_sub', 'TEXT'], ['username', 'TEXT'], ['lat', 'REAL'], ['lng', 'REAL'], ['county', "TEXT DEFAULT ''"], ['region', "TEXT DEFAULT ''"], ['country', "TEXT DEFAULT ''"]]) {
   if (!cols.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_username ON users(username)');
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_cognito_sub ON users(cognito_sub)');
 db.exec('CREATE INDEX IF NOT EXISTS users_county ON users(country, region, county)');
+const reportCols = new Set(db.prepare('PRAGMA table_info(reports)').all().map((c) => c.name));
+if (!reportCols.has('status')) db.exec("ALTER TABLE reports ADD COLUMN status TEXT DEFAULT 'open'"); // open | dismissed | actioned
+if (!reportCols.has('resolved_at')) db.exec('ALTER TABLE reports ADD COLUMN resolved_at INTEGER');
+
+export const getSetting = (key, fallback) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? fallback;
+export const setSetting = (key, value) =>
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
 
 export const now = () => Date.now();
 

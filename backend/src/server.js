@@ -2,9 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import multer from 'multer';
 import path from 'node:path';
-import { db, now, ageFrom, photosOf, publicUser, selfUser } from './db.js';
+import { db, now, ageFrom, getSetting, photosOf, publicUser, selfUser } from './db.js';
 import { requireAuth, requireIdentity } from './auth.js';
 import { deletePhoto, processImage, savePhoto, uploadDir } from './storage.js';
+import { admin } from './admin.js';
 import { normalizeUsername, usernameError } from './username.js';
 import { snap, distanceKm, reverseGeocode } from './geo.js';
 
@@ -29,7 +30,8 @@ const bad = (res, msg, code = 400) => res.status(code).json({ error: msg });
 
 // Testing only: demo profiles (no Cognito account) come back around after you swipe them, and liking one
 // is always a match — so the deck never runs out and the match moment can be felt. Real users are unaffected.
-const DEMO_MODE = process.env.DEMO_MODE === '1';
+// The admin dashboard can switch it at runtime; DEMO_MODE in the env is only the starting value.
+const demoMode = () => getSetting('demo_mode', process.env.DEMO_MODE === '1' ? '1' : '0') === '1';
 
 const usernameTaken = (u, exceptId = 0) => !!db.prepare('SELECT 1 FROM users WHERE username = ? AND id != ?').get(u, exceptId);
 
@@ -71,7 +73,7 @@ app.get('/api/username-available', (req, res) => {
 
 // ---------- me ----------
 
-app.get('/api/me', requireAuth, (req, res) => res.json(selfUser(req.user)));
+app.get('/api/me', requireAuth, (req, res) => res.json({ ...selfUser(req.user), isAdmin: req.identity.isAdmin }));
 
 app.patch('/api/me', requireAuth, (req, res) => {
   const { name, bio, city, availableNow, interestedIn, tags, heightCm } = req.body || {};
@@ -186,6 +188,7 @@ app.get('/api/discover', requireAuth, (req, res) => {
     .prepare(
       `SELECT u.*, (SELECT created_at FROM swipes WHERE from_id = ? AND to_id = u.id) AS seen_at FROM users u
        WHERE u.id != ?
+         AND COALESCE(u.banned, 0) = 0
          AND (',' || u.interested_in || ',') LIKE ?
          AND (u.id NOT IN (SELECT to_id FROM swipes WHERE from_id = ?) OR (? AND u.cognito_sub IS NULL))
          AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id = ?)
@@ -194,15 +197,16 @@ app.get('/api/discover', requireAuth, (req, res) => {
        ORDER BY u.last_active DESC
        LIMIT 500`,
     )
-    .all(me.id, me.id, `%,${me.gender},%`, me.id, DEMO_MODE ? 1 : 0, me.id, me.id, ...mine);
+    .all(me.id, me.id, `%,${me.gender},%`, me.id, demoMode() ? 1 : 0, me.id, me.id, ...mine);
 
   // Unseen people first; then same county, then by distance; "available now" gets a nudge; no location goes last.
   // (Already-seen people only appear in demo mode, least recently seen first.)
   const maxKm = Number(req.query.maxKm) || 100;
+  const demo = demoMode();
   const ranked = rows
     .map((u) => ({ u, km: distanceKm(me, u), same: !!me.county && u.county === me.county && u.region === me.region }))
     // In demo mode, demo profiles ignore the distance limit so a tester anywhere always has a deck.
-    .filter((r) => r.same || r.km == null || r.km <= maxKm || (DEMO_MODE && r.u.cognito_sub == null))
+    .filter((r) => r.same || r.km == null || r.km <= maxKm || (demo && r.u.cognito_sub == null))
     .sort(
       (a, b) =>
         (a.u.seen_at ?? 0) - (b.u.seen_at ?? 0) ||
@@ -223,7 +227,7 @@ app.post('/api/swipe', requireAuth, (req, res) => {
   if (dir === 'pass') return res.json({ match: null });
 
   const likedBack =
-    (DEMO_MODE && other.cognito_sub == null) ||
+    (demoMode() && other.cognito_sub == null) ||
     db.prepare("SELECT 1 FROM swipes WHERE from_id = ? AND to_id = ? AND dir = 'like'").get(other.id, req.user.id);
   if (!likedBack) return res.json({ match: null });
 
@@ -250,7 +254,7 @@ app.get('/api/matches', requireAuth, (req, res) => {
               (SELECT created_at FROM messages WHERE match_id = m.id ORDER BY id DESC LIMIT 1) AS last_at
        FROM matches m
        JOIN users u ON u.id = CASE WHEN m.a = :me THEN m.b ELSE m.a END
-       WHERE m.a = :me OR m.b = :me
+       WHERE (m.a = :me OR m.b = :me) AND COALESCE(u.banned, 0) = 0
        ORDER BY COALESCE(last_at, matched_at) DESC`,
     )
     .all({ me });
@@ -343,6 +347,8 @@ app.post('/api/report', requireAuth, (req, res) => {
   removeMatchWith(req.user.id, id);
   res.json({ ok: true });
 });
+
+app.use('/api/admin', admin);
 
 // In production, serve the built web app from the same server (SPA: unknown paths fall back to index.html).
 if (process.env.STATIC_DIR) {

@@ -17,7 +17,7 @@ async function identify(req) {
   const token = (req.headers.authorization || '').replace(/^Bearer /, '');
   const claims = await verifier.verify(token);
   if (!claims.email_verified) throw new Error('Email not verified');
-  return { sub: claims.sub, email: String(claims.email).toLowerCase() };
+  return { sub: claims.sub, email: String(claims.email).toLowerCase(), isAdmin: (claims['cognito:groups'] || []).includes('admins') };
 }
 
 // Signed in with Cognito, profile may not exist yet (used to create the profile).
@@ -39,7 +39,19 @@ export async function requireAuth(req, res, next) {
   }
   const user = findBySub.get(req.identity.sub);
   if (!user) return res.status(404).json({ error: 'Profile not set up', needsProfile: true });
+  if (user.banned) return res.status(403).json({ error: 'Your account has been suspended.', suspended: true });
   touch.run(now(), user.id);
   req.user = user;
+  next();
+}
+
+// Members of the Cognito "admins" group (the group shows up in the ID token's cognito:groups claim).
+export async function requireAdmin(req, res, next) {
+  try {
+    req.identity = await identify(req);
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (!req.identity.isAdmin) return res.status(403).json({ error: 'Admins only' });
   next();
 }

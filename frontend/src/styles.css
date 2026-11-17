@@ -204,3 +204,88 @@ input[type='date'], input[type='datetime-local'] { color-scheme: dark; }
 /* auth */
 .center-link { align-self: center; display: block; text-align: center; }
 .code-input { font-size: 28px; letter-spacing: .5em; text-align: center; font-weight: 700; }
+
+/* ---------- admin dashboard (desktop-first, still usable on a phone) ---------- */
+.admin { min-height: 100%; background: var(--bg); }
+.admin-head {
+  position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 14px 24px; border-bottom: 1px solid var(--line); background: rgba(10,10,11,0.92); backdrop-filter: blur(8px);
+}
+.admin-badge { font-size: 12px; padding: 4px 8px; border-radius: 6px; background: var(--surface-2); color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.admin-tabs { display: flex; gap: 4px; flex: 1; overflow-x: auto; scrollbar-width: none; }
+.admin-tabs button { padding: 8px 14px; border-radius: 999px; color: var(--muted); font-weight: 500; }
+.admin-tabs button.on { background: var(--surface-2); color: var(--text); }
+.admin-main { max-width: 1200px; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+@media (max-width: 640px) {
+  .admin-head { padding: 12px 16px; gap: 10px; }
+  .admin-tabs { order: 3; flex-basis: 100%; }
+  .admin-main { padding: 16px; }
+  .tile-value { font-size: 28px; }
+}
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+.tile.alert { border-color: var(--accent); }
+.tile-label { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; }
+.tile-value { font-size: 34px; font-weight: 900; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.tile-sub { color: var(--muted); font-size: 13px; }
+.tile.alert .tile-sub { color: var(--accent); }
+
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+.chart { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.chart figcaption { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-weight: 700; }
+.chart-wrap { position: relative; }
+.chart svg { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .axis { fill: var(--muted); font-size: 11px; }
+.chart .bar { fill: var(--accent); opacity: .85; }
+.chart .bar.on { opacity: 1; }
+.tooltip {
+  position: absolute; top: 0; transform: translate(-50%, -110%); pointer-events: none; white-space: nowrap;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 13px;
+}
+
+.admin-filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.admin-filters input { max-width: 360px; }
+.table-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: 16px; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.admin-table th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; padding: 12px; border-bottom: 1px solid var(--line); }
+.admin-table td { padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.admin-table tr:last-child td { border-bottom: 0; }
+.admin-table.compact td { padding: 6px 4px; }
+.admin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.admin-table tr.clickable { cursor: pointer; }
+.admin-table tr.clickable:hover td { background: var(--surface); }
+.person { display: flex; gap: 10px; align-items: center; }
+.avatar.sm { width: 36px; height: 36px; }
+.badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.badge { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
+.badge.danger { background: var(--accent-soft); color: var(--accent); }
+.badge.ok { color: var(--ok); }
+
+.panel-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 10; display: flex; justify-content: flex-end; }
+.panel {
+  width: min(480px, 100%); height: 100%; overflow-y: auto; background: var(--bg); border-left: 1px solid var(--line);
+  padding: 20px; display: flex; flex-direction: column; gap: 14px; animation: slide-in .2s ease-out;
+}
+@keyframes slide-in { from { transform: translateX(40px); opacity: 0; } }
+.panel-close { align-self: flex-end; }
+.panel h2 { font-size: 24px; letter-spacing: -0.02em; }
+.panel h3 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.panel-photos { display: flex; gap: 8px; overflow-x: auto; }
+.panel-photos img { height: 180px; aspect-ratio: 3/4; object-fit: cover; border-radius: 12px; background: var(--surface-2); }
+.facts { display: grid; grid-template-columns: 110px 1fr; gap: 8px 12px; font-size: 14px; }
+.facts dt { color: var(--muted); }
+.mini-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mini-stats div { background: var(--surface); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; }
+.mini-stats strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+.report-line { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.panel-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.sm.danger { color: var(--accent); border-color: var(--accent); }
+.admin-msg { font-size: 14px; color: var(--muted); }
+
+.report-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; }
+.report-card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.report-card > div:first-child { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.link.strong { color: var(--text); font-weight: 700; padding: 0; font-size: 15px; }
+.settings { max-width: 560px; }

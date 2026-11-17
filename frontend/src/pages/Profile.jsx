@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { deleteUser } from 'aws-amplify/auth';
 import { api, photoUrl } from '../api.js';
 import { useMe } from '../me.js';
@@ -89,6 +90,7 @@ export default function Profile() {
           ))}
         </div>
         <button className="btn primary" onClick={() => save(f)}>Save</button>
+        {me.isAdmin && <Link className="btn ghost" to="/admin">Admin dashboard</Link>}
         <button className="btn ghost" onClick={logout}>Log out</button>
         <button className="link danger" onClick={remove}>Delete account</button>
       </div>

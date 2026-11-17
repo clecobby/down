@@ -14,10 +14,11 @@ import Discover from './pages/Discover.jsx';
 import Matches from './pages/Matches.jsx';
 import Chat from './pages/Chat.jsx';
 import Profile from './pages/Profile.jsx';
+import Admin from './pages/Admin.jsx';
 import './styles.css';
 
 function App() {
-  // loading → out (no Cognito session) | setup (signed in, no profile yet) | in
+  // loading → out (no Cognito session) | setup (signed in, no profile yet) | suspended | in
   const [status, setStatus] = useState('loading');
   const [me, setMeState] = useState(null);
 
@@ -36,6 +37,7 @@ function App() {
       setMe(await api('/me'));
     } catch (e) {
       if (e.data?.needsProfile) setStatus('setup');
+      else if (e.data?.suspended) setStatus('suspended');
       else {
         await signOut().catch(() => {});
         setMe(null);
@@ -53,6 +55,15 @@ function App() {
   }, [refresh]);
 
   if (status === 'loading') return <div className="screen center"><div className="logo">down</div></div>;
+  if (status === 'suspended')
+    return (
+      <div className="screen form-screen">
+        <div className="logo">down</div>
+        <h1>Account suspended.</h1>
+        <p className="muted">Your account was suspended for breaking the community rules. If you think this is a mistake, contact support.</p>
+        <button className="btn ghost" onClick={logout}>Log out</button>
+      </div>
+    );
 
   const only = (s, el, fallback) => (status === s ? el : <Navigate to={fallback} replace />);
   const home = status === 'in' ? '/discover' : status === 'setup' ? '/setup' : '/';
@@ -69,6 +80,7 @@ function App() {
         <Route path="/discover" element={only('in', <Discover />, home)} />
         <Route path="/matches" element={only('in', <Matches />, home)} />
         <Route path="/chat/:id" element={only('in', <Chat />, home)} />
+        <Route path="/admin" element={status === 'in' && me?.isAdmin ? <Admin /> : <Navigate to={home} replace />} />
         <Route path="/profile" element={only('in', <Profile />, home)} />
         <Route path="*" element={<Navigate to={home} replace />} />
       </Routes>

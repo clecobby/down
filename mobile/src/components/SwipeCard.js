@@ -46,6 +46,11 @@ function CardBody({ user, index = 0, showHint }) {
           {user.sameCounty ? `In ${user.county}` : user.county}
           {distanceLabel(user)}
         </Text>
+        {user.inCommon?.length > 0 && (
+          <View style={st.common}>
+            <Text style={st.commonText}>🔥 {user.inCommon.length} in common</Text>
+          </View>
+        )}
         {!!user.bio && (
           <Text style={st.bio} numberOfLines={2}>
             {user.bio}
@@ -73,7 +78,8 @@ export function BackCard({ user, drag }) {
 // The draggable top card. flingRef.current(dir) lets the ✕ / ♥ buttons trigger the same exit.
 // Each card owns its position (so a new card always starts centered) and mirrors it into `drag`
 // for the card underneath and the action buttons.
-export function TopCard({ user, onSwipe, flingRef, drag, onOpen }) {
+// `rise` (0 → 1) is how far the full profile has been pulled up; dragging up drives it directly, like scrolling.
+export function TopCard({ user, onSwipe, flingRef, drag, rise, onOpen }) {
   const { width, height } = useWindowDimensions();
   const [photoIndex, setPhotoIndex] = useState(0);
   const photoCount = user.photos?.length || 1;
@@ -83,6 +89,14 @@ export function TopCard({ user, onSwipe, flingRef, drag, onOpen }) {
   const ty = useSharedValue(0);
   const tiltSign = useSharedValue(1); // grabbed in the lower half → tilt the other way, like a real card
   const armed = useSharedValue(false); // past the threshold (for the haptic tick)
+  const mode = useSharedValue(0); // 0 = undecided, 1 = swiping sideways, 2 = pulling the profile up
+  const pullRange = height * 0.7;
+
+  const openProfile = (velocity = 0) => {
+    'worklet';
+    rise.set(withSpring(1, { damping: 22, stiffness: 190, velocity: -velocity / pullRange }));
+    scheduleOnRN(onOpen);
+  };
 
 
   const fling = (dir, vx = 0, vy = 0) => {
@@ -100,8 +114,17 @@ export function TopCard({ user, onSwipe, flingRef, drag, onOpen }) {
   const pan = usePanGesture({
     onBegin: (e) => {
       tiltSign.value = e.y > height * 0.35 ? -1 : 1;
+      mode.value = 0;
     },
     onUpdate: (e) => {
+      // Lock the direction once the finger has clearly moved.
+      if (mode.value === 0 && Math.max(Math.abs(e.translationX), Math.abs(e.translationY)) > 10)
+        mode.value = e.translationY < 0 && Math.abs(e.translationY) > Math.abs(e.translationX) * 1.2 ? 2 : 1;
+      if (mode.value === 2) {
+        rise.set(Math.min(1, Math.max(0, -e.translationY / pullRange)));
+        ty.value = e.translationY * 0.12;
+        return;
+      }
       tx.value = e.translationX;
       ty.value = e.translationY;
       const past = Math.abs(e.translationX) > THRESHOLD;
@@ -112,13 +135,15 @@ export function TopCard({ user, onSwipe, flingRef, drag, onOpen }) {
     },
     onDeactivate: (e) => {
       armed.value = false;
-      const thrown = Math.abs(e.velocityX) > 800 && Math.sign(e.velocityX) === Math.sign(tx.value || e.velocityX);
-      const swipedUp = ty.value < -110 && Math.abs(tx.value) < THRESHOLD && e.velocityY < 0;
-      if (swipedUp) {
-        scheduleOnRN(onOpen);
-        tx.value = withSpring(0, SNAP_BACK);
+      if (mode.value === 2) {
         ty.value = withSpring(0, SNAP_BACK);
-      } else if (Math.abs(tx.value) > THRESHOLD || thrown) {
+        // Past a quarter of the way, or flicked up: snap open. Otherwise fall back.
+        if (rise.get() > 0.25 || e.velocityY < -600) openProfile(e.velocityY);
+        else rise.set(withSpring(0, SNAP_BACK));
+        return;
+      }
+      const thrown = Math.abs(e.velocityX) > 800 && Math.sign(e.velocityX) === Math.sign(tx.value || e.velocityX);
+      if (Math.abs(tx.value) > THRESHOLD || thrown) {
         fling((tx.value || e.velocityX) > 0 ? 'like' : 'pass', e.velocityX, e.velocityY);
       } else {
         tx.value = withSpring(0, { ...SNAP_BACK, velocity: e.velocityX });
@@ -130,8 +155,7 @@ export function TopCard({ user, onSwipe, flingRef, drag, onOpen }) {
   useAnimatedReaction(
     () => tx.value,
     (v) => {
-      // eslint-disable-next-line react-hooks/immutability -- shared value, written on the UI thread by design
-      drag.value = v;
+      drag.set(v);
     },
   );
 
@@ -158,7 +182,7 @@ export function TopCard({ user, onSwipe, flingRef, drag, onOpen }) {
   const tap = useTapGesture({
     maxDistance: 10,
     onActivate: (e) => {
-      if (e.y > cardH.value * 0.65) scheduleOnRN(onOpen);
+      if (e.y > cardH.value * 0.65) openProfile();
       else scheduleOnRN(flip, e.x > width / 2);
     },
   });
@@ -176,7 +200,10 @@ export function TopCard({ user, onSwipe, flingRef, drag, onOpen }) {
           <LinearGradient colors={['rgba(255,45,85,0.0)', colors.accent]} start={{ x: 0.2, y: 0 }} end={{ x: 1, y: 0.4 }} style={StyleSheet.absoluteFill} />
         </Animated.View>
         <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#000' }, shade]} />
-        <Animated.Text style={[st.stamp, st.like, likeStyle]}>DOWN</Animated.Text>
+        <Animated.View style={[st.smiley, likeStyle]} pointerEvents="none">
+          <Text style={st.smileyFace}>😏</Text>
+          <Text style={st.smileyText}>DOWN</Text>
+        </Animated.View>
         <Animated.Text style={[st.stamp, st.pass, passStyle]}>NOPE</Animated.Text>
       </Animated.View>
     </GestureDetector>
@@ -198,6 +225,13 @@ const st = StyleSheet.create({
   bar: { flex: 1, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.35)' },
   barOn: { backgroundColor: '#fff' },
   stamp: { position: 'absolute', top: 36, paddingHorizontal: 14, paddingVertical: 4, borderWidth: 4, borderRadius: 12, fontSize: 34, fontWeight: '900', letterSpacing: 2 },
-  like: { left: 24, color: colors.accent, borderColor: colors.accent },
+  smiley: {
+    position: 'absolute', top: 30, left: 22, alignItems: 'center', paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 22, borderWidth: 4, borderColor: colors.accent, backgroundColor: 'rgba(255,45,85,0.18)',
+  },
+  smileyFace: { fontSize: 58, lineHeight: 66 },
+  smileyText: { color: colors.accent, fontSize: 20, fontWeight: '900', letterSpacing: 2 },
+  common: { alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: 'rgba(255,45,85,0.85)' },
+  commonText: { color: '#fff', fontSize: 13, fontWeight: '700' },
   pass: { right: 24, color: '#fff', borderColor: '#fff' },
 });

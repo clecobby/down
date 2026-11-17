@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { distanceKm, fuzzyKm } from './geo.js';
+import { inCommon, turnOnsOf } from './turnons.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 export const db = new DatabaseSync(process.env.DB_PATH || path.join(dir, '..', 'down.db'));
@@ -103,7 +104,7 @@ db.exec(`
 
 // Add columns to databases created before they existed.
 const cols = new Set(db.prepare('PRAGMA table_info(users)').all().map((c) => c.name));
-for (const [name, type] of [['banned', 'INTEGER DEFAULT 0'], ['banned_reason', "TEXT DEFAULT ''"], ['photos', "TEXT DEFAULT ''"], ['tags', "TEXT DEFAULT ''"], ['height_cm', 'INTEGER'], ['cognito_sub', 'TEXT'], ['username', 'TEXT'], ['lat', 'REAL'], ['lng', 'REAL'], ['county', "TEXT DEFAULT ''"], ['region', "TEXT DEFAULT ''"], ['country', "TEXT DEFAULT ''"]]) {
+for (const [name, type] of [['turn_ons', "TEXT DEFAULT ''"], ['banned', 'INTEGER DEFAULT 0'], ['banned_reason', "TEXT DEFAULT ''"], ['photos', "TEXT DEFAULT ''"], ['tags', "TEXT DEFAULT ''"], ['height_cm', 'INTEGER'], ['cognito_sub', 'TEXT'], ['username', 'TEXT'], ['lat', 'REAL'], ['lng', 'REAL'], ['county', "TEXT DEFAULT ''"], ['region', "TEXT DEFAULT ''"], ['country', "TEXT DEFAULT ''"]]) {
   if (!cols.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS users_username ON users(username)');
@@ -154,6 +155,8 @@ export function publicUser(u, viewer) {
     city: u.city,
     county: u.county,
     sameCounty: !!viewer?.county && viewer.county === u.county && viewer.region === u.region,
+    // Only the overlap with the viewer is ever shared, never someone's full list.
+    inCommon: viewer ? inCommon(viewer, u) : [],
     distanceKm: fuzzyKm(km),
     availableNow: !!u.available_now,
     lastActive: u.last_active,
@@ -169,5 +172,6 @@ export function selfUser(u) {
     region: u.region,
     country: u.country,
     hasLocation: u.lat != null,
+    turnOns: turnOnsOf(u),
   };
 }

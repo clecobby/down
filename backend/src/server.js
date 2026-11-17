@@ -6,6 +6,7 @@ import { db, now, ageFrom, getSetting, photosOf, publicUser, selfUser } from './
 import { requireAuth, requireIdentity } from './auth.js';
 import { deletePhoto, processImage, savePhoto, uploadDir } from './storage.js';
 import { admin } from './admin.js';
+import { TURN_ONS, inCommon, parseTurnOns } from './turnons.js';
 import { normalizeUsername, usernameError } from './username.js';
 import { snap, distanceKm, reverseGeocode } from './geo.js';
 
@@ -76,8 +77,9 @@ app.get('/api/username-available', (req, res) => {
 app.get('/api/me', requireAuth, (req, res) => res.json({ ...selfUser(req.user), isAdmin: req.identity.isAdmin }));
 
 app.patch('/api/me', requireAuth, (req, res) => {
-  const { name, bio, city, availableNow, interestedIn, tags, heightCm } = req.body || {};
+  const { name, bio, city, availableNow, interestedIn, tags, heightCm, turnOns } = req.body || {};
   const u = req.user;
+  const turnOnList = turnOns === undefined ? u.turn_ons : parseTurnOns(turnOns).join(',');
   const tagList = tags === undefined ? u.tags : [...new Set((Array.isArray(tags) ? tags : []).filter((t) => TAGS.includes(t)))].slice(0, 5).join(',');
   const height = heightCm === undefined ? u.height_cm : heightCm === null || heightCm === '' ? null : Math.round(Number(heightCm));
   if (height != null && !(height >= 120 && height <= 230)) return bad(res, 'Height should be between 120 and 230 cm');
@@ -89,7 +91,7 @@ app.patch('/api/me', requireAuth, (req, res) => {
     if (uErr) return bad(res, uErr);
     if (usernameTaken(username, u.id)) return bad(res, 'Username is taken', 409);
   }
-  db.prepare('UPDATE users SET username = ?, name = ?, bio = ?, city = ?, available_now = ?, interested_in = ?, tags = ?, height_cm = ? WHERE id = ?').run(
+  db.prepare('UPDATE users SET username = ?, name = ?, bio = ?, city = ?, available_now = ?, interested_in = ?, tags = ?, height_cm = ?, turn_ons = ? WHERE id = ?').run(
     username,
     (name ?? u.name).trim() || u.name,
     String(bio ?? u.bio).slice(0, 300),
@@ -98,6 +100,7 @@ app.patch('/api/me', requireAuth, (req, res) => {
     interests,
     tagList,
     height,
+    turnOnList,
     u.id,
   );
   res.json(selfUser(db.prepare('SELECT * FROM users WHERE id = ?').get(u.id)));
@@ -171,6 +174,7 @@ app.post('/api/me/photos/:i/main', requireAuth, (req, res) => {
 });
 
 app.get('/api/tags', (req, res) => res.json(TAGS));
+app.get('/api/turn-ons', (req, res) => res.json(TURN_ONS));
 
 app.delete('/api/me', requireAuth, (req, res) => {
   // Remove their uploaded photos from disk too.
@@ -199,18 +203,26 @@ app.get('/api/discover', requireAuth, (req, res) => {
     )
     .all(me.id, me.id, `%,${me.gender},%`, me.id, demoMode() ? 1 : 0, me.id, me.id, ...mine);
 
-  // Unseen people first; then same county, then by distance; "available now" gets a nudge; no location goes last.
+  // Unseen people first; then 3+ turn-ons in common; then same county, then by distance; "available now" gets a nudge; no location goes last.
   // (Already-seen people only appear in demo mode, least recently seen first.)
   const maxKm = Number(req.query.maxKm) || 100;
   const demo = demoMode();
   const ranked = rows
-    .map((u) => ({ u, km: distanceKm(me, u), same: !!me.county && u.county === me.county && u.region === me.region }))
+    .map((u) => ({
+      u,
+      km: distanceKm(me, u),
+      same: !!me.county && u.county === me.county && u.region === me.region,
+      common: inCommon(me, u).length,
+    }))
     // In demo mode, demo profiles ignore the distance limit so a tester anywhere always has a deck.
     .filter((r) => r.same || r.km == null || r.km <= maxKm || (demo && r.u.cognito_sub == null))
     .sort(
       (a, b) =>
         (a.u.seen_at ?? 0) - (b.u.seen_at ?? 0) ||
+        // 3+ turn-ons in common jumps the queue, then more in common, then closer.
+        (b.common >= 3) - (a.common >= 3) ||
         b.same - a.same ||
+        Math.min(b.common, 5) - Math.min(a.common, 5) ||
         (a.km ?? 1e9) - (b.km ?? 1e9) - (b.u.available_now - a.u.available_now) * 5,
     )
     .slice(0, 20);

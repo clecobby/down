@@ -1,5 +1,6 @@
 // Adds demo profiles to swipe on. They have no Cognito account, so nobody can log in as them.
 import { db, now } from './db.js';
+import { TURN_ONS } from './turnons.js';
 
 // name, username, gender, into, birthdate, bio, photo, available, [lat, lng, county, region, country]
 const BERLIN = ['Berlin', 'Berlin', 'DE'];
@@ -203,4 +204,11 @@ people.forEach(([, username, gender, , , , pic], i) => {
   filled += extras.run(JSON.stringify(photos), TAG_SETS[i % TAG_SETS.length].join(','), height, username).changes;
 });
 
-console.log(`Added ${added} demo profiles (${people.length - added} already there), filled extras for ${filled}.`);
+// Turn-ons for demo profiles that haven't played the game: 5–10 picks each, varied but repeatable.
+const setTurnOns = db.prepare("UPDATE users SET turn_ons = ? WHERE username = ? AND cognito_sub IS NULL AND COALESCE(turn_ons, '') = ''");
+let played = 0;
+people.forEach(([, username], i) => {
+  const picks = TURN_ONS.filter((_, j) => (i * 7 + j * 3) % 5 < 2 + (i % 3)).map((t) => t.id);
+  played += setTurnOns.run(picks.join(','), username).changes;
+});
+console.log(`Added ${added} demo profiles (${people.length - added} already there), filled extras for ${filled}, turn-ons for ${played}.`);

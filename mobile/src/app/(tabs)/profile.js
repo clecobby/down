@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, Switch, Text, View } from 'react-native';
+import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
@@ -166,6 +167,19 @@ export default function Profile() {
             placeholder="Keep it short. Hint, don't spell it out."
             style={{ minHeight: 90, alignItems: 'flex-start' }}
           />
+          <Pressable
+            onPress={() => router.push('/turnons')}
+            style={{ flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 18, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.accent, marginTop: 6 }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[s.text, { fontWeight: '700' }]}>🔥 Turn-ons game</Text>
+              <Text style={[s.muted, { fontSize: 12 }]}>
+                {me.turnOns?.length ? `${me.turnOns.length} picked · others only see what you share` : 'Play to see what you have in common'}
+              </Text>
+            </View>
+            <Text style={{ color: colors.accent, fontWeight: '700' }}>{me.turnOns?.length ? 'Edit' : 'Play'}</Text>
+          </Pressable>
+
           <Label>Vibe (up to 5)</Label>
           <View style={s.chips}>
             {allTags.map((t) => (

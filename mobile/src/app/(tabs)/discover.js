@@ -6,13 +6,13 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
-import Animated, { Extrapolation, FadeIn, FadeInDown, ZoomIn, interpolate, useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import Animated, { Extrapolation, FadeIn, FadeInDown, ZoomIn, interpolate, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { api, photoUrl } from '../../lib/api';
 import { useMe } from '../../lib/me';
 import { colors } from '../../lib/theme';
 import { Button, Logo, s } from '../../components/ui';
 import { BackCard, THRESHOLD, TopCard } from '../../components/SwipeCard';
-import ProfileSheet from '../../components/ProfileSheet';
+import PullUpProfile from '../../components/PullUpProfile';
 
 // Refresh location on open. The server snaps it to ~1 km and only shares county + rough distance.
 async function sendLocation() {
@@ -26,10 +26,13 @@ export default function Discover() {
   const { me, setMe } = useMe();
   const [deck, setDeck] = useState(null);
   const [match, setMatch] = useState(null);
-  const [viewing, setViewing] = useState(null); // profile opened by swiping up
+  const [profileOpen, setProfileOpen] = useState(false); // full profile pulled up over the deck
   const [locErr, setLocErr] = useState('');
   const flingRef = useRef(null);
   const drag = useSharedValue(0); // top card's x offset: drives the card underneath and the buttons
+  const rise = useSharedValue(0); // how far the full profile is pulled up (0 → 1)
+  // The deck sinks back a little as the profile comes up over it.
+  const deckStyle = useAnimatedStyle(() => ({ transform: [{ scale: 1 - 0.06 * rise.value }], opacity: 1 - 0.5 * rise.value }));
 
   const load = useCallback(() => api('/discover').then(setDeck).catch(() => setDeck([])), []);
 
@@ -78,6 +81,15 @@ export default function Discover() {
         )}
       </View>
 
+      {(me.turnOns?.length ?? 0) < 3 && (
+        <Pressable onPress={() => router.push('/turnons')} style={{ marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: colors.accentSoft }}>
+          <Text style={[s.text, { fontSize: 13 }]}>
+            🔥 Play the 30-second turn-ons game to see what you have in common.{' '}
+            <Text style={{ color: colors.accent, textDecorationLine: 'underline' }}>Play</Text>
+          </Text>
+        </Pressable>
+      )}
+
       {!!locErr && !me.hasLocation && (
         <Pressable onPress={locate} style={{ marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: colors.accentSoft }}>
           <Text style={[s.text, { fontSize: 13 }]}>
@@ -86,7 +98,7 @@ export default function Discover() {
         </Pressable>
       )}
 
-      <View style={{ flex: 1, marginHorizontal: 16 }}>
+      <Animated.View style={[{ flex: 1, marginHorizontal: 16 }, deckStyle]}>
         {deck?.length === 0 && (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
             <Text style={s.h2}>That's everyone for now.</Text>
@@ -95,25 +107,26 @@ export default function Discover() {
           </View>
         )}
         {next && <BackCard key={`b${next.id}`} user={next} drag={drag} />}
-        {top && <TopCard key={`t${top.id}`} user={top} onSwipe={swipe} flingRef={flingRef} drag={drag} onOpen={() => setViewing(top)} />}
-      </View>
+        {top && <TopCard key={`t${top.id}`} user={top} onSwipe={swipe} flingRef={flingRef} drag={drag} rise={rise} onOpen={() => setProfileOpen(true)} />}
+      </Animated.View>
 
       <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 28, paddingVertical: 16, opacity: top ? 1 : 0 }}>
         <ActionButton drag={drag} dir="pass" onPress={() => flingRef.current?.('pass')} />
         <ActionButton drag={drag} dir="like" onPress={() => flingRef.current?.('like')} />
       </View>
 
-      {viewing && (
-        <ProfileSheet
-          user={viewing}
-          onClose={() => setViewing(null)}
-          onDecide={(dir) => {
-            setViewing(null);
-            // Let the sheet slide away, then throw the card.
-            setTimeout(() => flingRef.current?.(dir), 350);
-          }}
-        />
-      )}
+      <PullUpProfile
+        user={top}
+        rise={rise}
+        open={profileOpen}
+        onClose={() => setProfileOpen(false)}
+        onDecide={(dir) => {
+          rise.value = withTiming(0, { duration: 220 });
+          setProfileOpen(false);
+          // Let the profile slide away, then throw the card.
+          setTimeout(() => flingRef.current?.(dir), 260);
+        }}
+      />
 
       <Modal visible={!!match} transparent animationType="fade" onRequestClose={() => setMatch(null)}>
         {match && (

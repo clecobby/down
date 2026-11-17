@@ -201,7 +201,8 @@ app.get('/api/discover', requireAuth, (req, res) => {
   const maxKm = Number(req.query.maxKm) || 100;
   const ranked = rows
     .map((u) => ({ u, km: distanceKm(me, u), same: !!me.county && u.county === me.county && u.region === me.region }))
-    .filter((r) => r.same || r.km == null || r.km <= maxKm)
+    // In demo mode, demo profiles ignore the distance limit so a tester anywhere always has a deck.
+    .filter((r) => r.same || r.km == null || r.km <= maxKm || (DEMO_MODE && r.u.cognito_sub == null))
     .sort(
       (a, b) =>
         (a.u.seen_at ?? 0) - (b.u.seen_at ?? 0) ||

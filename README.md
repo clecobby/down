@@ -49,12 +49,13 @@ Live at **https://d2lfawokdyd1nt.cloudfront.net** (website + API on one address)
 |---|---|---|
 | `main` | **production** https://d2lfawokdyd1nt.cloudfront.net | automatic on push (CodePipeline `down-prod`) |
 | `dev` | **dev** https://d3nrslazsd4mxv.cloudfront.net | automatic on push (CodePipeline `down-dev`); shared testing, own database + photos, 88 demo profiles |
-| anything else (e.g. `clecobby`) | nothing | GitHub Actions runs tests/build/lint on every branch and PR |
+| anything else (e.g. `clecobby`) | nothing | CodePipeline `down-checks` runs tests/build/lint (also on pull requests into `dev`/`main`) |
 
 Flow: work on your branch → pull request into `dev` → test on dev → pull request `dev` → `main`.
 Dev and production share the Cognito login (same account works on both) but have separate data.
 Deploys: GitHub → CodeConnections `down-github` → CodePipeline (V2, push trigger on the branch) → CodeBuild `down-prod` / `down-dev`
 (runs `deploy/buildspec.yml`: tests, then `deploy/deploy-aws.sh`). Each CodeBuild role can only touch its own stage. No AWS keys in GitHub.
+Checks for other branches and pull requests: CodePipeline `down-checks` → CodeBuild `down-checks` (`deploy/checks-buildspec.yml`, no deploy rights). No GitHub Actions.
 
 Mobile: `eas.json` profiles `dev` (channel `dev`, installable APK / iOS internal build) and `production`.
 Each deploy also publishes an over-the-air update to the matching channel when the SSM parameter `/down/expo-token` exists,

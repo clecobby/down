@@ -1,0 +1,17 @@
+# CodeBuild steps for the CodePipeline pipeline down-checks: runs on pushes to any branch other
+# than main/dev (e.g. clecobby) and on pull requests into main or dev. Checks only, no deploy.
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - n 24 >/dev/null && hash -r && node -v
+  build:
+    commands:
+      - cd backend && npm ci --no-audit --no-fund && npm test && cd ..
+      - cd frontend && npm ci --no-audit --no-fund && npm run build && cd ..
+      - cd mobile && npm ci --no-audit --no-fund && npm run lint && cd ..
+
+cache:
+  paths:
+    - /root/.npm/**/*

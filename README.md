@@ -47,15 +47,17 @@ Live at **https://d2lfawokdyd1nt.cloudfront.net** (website + API on one address)
 
 | Branch | Deploys to | Notes |
 |---|---|---|
-| `main` | **production** https://d2lfawokdyd1nt.cloudfront.net | automatic on push (CodePipeline `down-prod`) |
-| `dev` | **dev** https://d3nrslazsd4mxv.cloudfront.net | automatic on push (CodePipeline `down-dev`); shared testing, own database + photos, 88 demo profiles |
-| anything else (e.g. `clecobby`) | nothing | CodePipeline `down-checks` runs tests/build/lint (also on pull requests into `dev`/`main`) |
+| `main` | **production** https://d2lfawokdyd1nt.cloudfront.net | automatic on push to CodeCommit (CodePipeline `down-prod`) |
+| `dev` | **dev** https://d3nrslazsd4mxv.cloudfront.net | automatic on push to CodeCommit (CodePipeline `down-dev`); shared testing, own database + photos, 88 demo profiles |
+| anything else (e.g. `clecobby`) | nothing | CodeBuild `down-checks` runs tests/build/lint |
 
 Flow: work on your branch → pull request into `dev` → test on dev → pull request `dev` → `main`.
 Dev and production share the Cognito login (same account works on both) but have separate data.
-Deploys: GitHub → CodeConnections `down-github` → CodePipeline (V2, push trigger on the branch) → CodeBuild `down-prod` / `down-dev`
-(runs `deploy/buildspec.yml`: tests, then `deploy/deploy-aws.sh`). Each CodeBuild role can only touch its own stage. No AWS keys in GitHub.
-Checks for other branches and pull requests: CodePipeline `down-checks` → CodeBuild `down-checks` (`deploy/checks-buildspec.yml`, no deploy rights). No GitHub Actions.
+Code flow: everyone pushes to **GitHub** (clecobby/down). `deploy/sync-github.sh` copies GitHub's branches to
+**CodeCommit** (`origin`, never forced). A push to CodeCommit fires EventBridge rules (`down-push-main/dev/other`):
+`main` → CodePipeline `down-prod`, `dev` → `down-dev` (CodeBuild runs `deploy/buildspec.yml`: tests, then
+`deploy/deploy-aws.sh`; each build role can only touch its own stage), other branches → CodeBuild `down-checks`
+(`deploy/checks-buildspec.yml`, tests only). No GitHub Actions, no AWS keys on GitHub.
 
 Mobile: `eas.json` profiles `dev` (channel `dev`, installable APK / iOS internal build) and `production`.
 Each deploy also publishes an over-the-air update to the matching channel when the SSM parameter `/down/expo-token` exists,

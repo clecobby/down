@@ -43,16 +43,32 @@ Seeded profiles are swipe-only demo data; nobody can log in as them.
 
 Live at **https://d2lfawokdyd1nt.cloudfront.net** (website + API on one address).
 
+### Branches and environments
+
+| Branch | Deploys to | Notes |
+|---|---|---|
+| `main` | **production** https://d2lfawokdyd1nt.cloudfront.net | automatic on push (GitHub Actions) |
+| `dev` | **dev** https://d3nrslazsd4mxv.cloudfront.net | automatic on push; shared testing, own database + photos, 88 demo profiles |
+| anything else (e.g. `clecobby`) | nothing | tests/build/lint only |
+
+Flow: work on your branch → pull request into `dev` → test on dev → pull request `dev` → `main`.
+Dev and production share the Cognito login (same account works on both) but have separate data.
+GitHub Actions logs into AWS with OIDC (roles `down-deploy-prod` trusts only `main`, `down-deploy-dev` only `dev`); no AWS keys in GitHub.
+
+Mobile: `eas.json` profiles `dev` (channel `dev`, installable APK / iOS internal build) and `production`.
+Each deploy also publishes an over-the-air update to the matching channel when the `EXPO_TOKEN` repo secret is set,
+so installed apps pick up new code on next launch. `npx expo start` locally talks to the dev server (`mobile/.env`).
+
 | Piece | Service |
 |---|---|
-| API | Lambda `down-api` (Node 24, arm64) behind a function URL that only CloudFront may call (secret origin header) |
+| API | Lambda `down-api` / `down-api-dev` (Node 24, arm64) behind a function URL that only CloudFront may call (secret origin header) |
 | Database | Aurora DSQL (serverless Postgres, IAM auth, app role `down_app`); local dev/tests use SQLite |
 | Website | S3 `down-web-<account>` + CloudFront (SPA routing function, security headers policy) |
-| Photos | S3 `down-photos-<account>` + CloudFront, re-encoded with metadata stripped |
+| Photos | S3 `down-photos-<account>` + CloudFront (dev: `photos/` in the dev site bucket), re-encoded with metadata stripped |
 | Login | Cognito user pool `us-east-1_Lbp099d7v` (web: Amplify, mobile: Cognito API) |
 
 ```bash
-deploy/deploy-aws.sh             # build + deploy API and website (deploy/deploy-aws.sh api|web for one)
+deploy/deploy-aws.sh dev         # manual deploy of API + website (prod|dev, optional api|web)
 cd backend && npm test           # 19 tests on SQLite
 DSQL_HOST=<cluster>.dsql.us-east-1.on.aws node --experimental-test-module-mocks --test test/flow.test.js   # full flow against DSQL
 DSQL_HOST=… npm run migrate      # create/upgrade DSQL tables

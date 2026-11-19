@@ -1,0 +1,17 @@
+{
+  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "build": {
+    "dev": {
+      "channel": "dev",
+      "distribution": "internal",
+      "env": { "EXPO_PUBLIC_API_URL": "https://d3nrslazsd4mxv.cloudfront.net" },
+      "android": { "buildType": "apk" }
+    },
+    "production": {
+      "channel": "production",
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_API_URL": "https://d2lfawokdyd1nt.cloudfront.net" }
+    }
+  },
+  "submit": { "production": {} }
+}

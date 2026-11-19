@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { getIdToken } from './cognito';
 
-// EXPO_PUBLIC_API_URL (mobile/.env) points at the live server. Without it, use a local backend on the machine
+// EXPO_PUBLIC_API_URL (mobile/.env, eas.json) picks the dev or production server. Without it, use a local backend on the machine
 // serving the JS bundle (works on simulators and on phones on the same Wi-Fi).
 const devHost = Constants.expoConfig?.hostUri?.split(':')[0] || 'localhost';
 export const API = process.env.EXPO_PUBLIC_API_URL || `http://${devHost}:4000`;

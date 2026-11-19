@@ -1,0 +1,30 @@
+# CodeBuild steps for the CodePipeline pipelines down-prod (main) and down-dev (dev).
+# STAGE (prod|dev), CHANNEL and API_URL come from the CodeBuild project's environment.
+# The Expo token for publishing the mobile update is read from SSM /down/expo-token if it exists.
+version: 0.2
+
+phases:
+  install:
+    commands:
+      - n 24 >/dev/null && hash -r && node -v
+  pre_build:
+    commands:
+      - cd backend && npm ci --no-audit --no-fund && npm test && cd ..
+      - cd frontend && npm ci --no-audit --no-fund && cd ..
+  build:
+    commands:
+      - bash deploy/deploy-aws.sh "$STAGE"
+  post_build:
+    commands:
+      - |
+        if [ "$CODEBUILD_BUILD_SUCCEEDING" = 1 ] && EXPO_TOKEN=$(aws ssm get-parameter --name /down/expo-token --with-decryption --query Parameter.Value --output text 2>/dev/null); then
+          export EXPO_TOKEN EXPO_PUBLIC_API_URL="$API_URL"
+          cd mobile && npm ci --no-audit --no-fund \
+            && npx --yes eas-cli@latest update --channel "$CHANNEL" --message "$STAGE deploy $(echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-7)" --non-interactive
+        else
+          echo "Skipping mobile update (no /down/expo-token in SSM, or the deploy failed)"
+        fi
+
+cache:
+  paths:
+    - /root/.npm/**/*

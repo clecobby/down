@@ -47,16 +47,17 @@ Live at **https://d2lfawokdyd1nt.cloudfront.net** (website + API on one address)
 
 | Branch | Deploys to | Notes |
 |---|---|---|
-| `main` | **production** https://d2lfawokdyd1nt.cloudfront.net | automatic on push (GitHub Actions) |
-| `dev` | **dev** https://d3nrslazsd4mxv.cloudfront.net | automatic on push; shared testing, own database + photos, 88 demo profiles |
-| anything else (e.g. `clecobby`) | nothing | tests/build/lint only |
+| `main` | **production** https://d2lfawokdyd1nt.cloudfront.net | automatic on push (CodePipeline `down-prod`) |
+| `dev` | **dev** https://d3nrslazsd4mxv.cloudfront.net | automatic on push (CodePipeline `down-dev`); shared testing, own database + photos, 88 demo profiles |
+| anything else (e.g. `clecobby`) | nothing | GitHub Actions runs tests/build/lint on every branch and PR |
 
 Flow: work on your branch → pull request into `dev` → test on dev → pull request `dev` → `main`.
 Dev and production share the Cognito login (same account works on both) but have separate data.
-GitHub Actions logs into AWS with OIDC (roles `down-deploy-prod` trusts only `main`, `down-deploy-dev` only `dev`); no AWS keys in GitHub.
+Deploys: GitHub → CodeConnections `down-github` → CodePipeline (V2, push trigger on the branch) → CodeBuild `down-prod` / `down-dev`
+(runs `deploy/buildspec.yml`: tests, then `deploy/deploy-aws.sh`). Each CodeBuild role can only touch its own stage. No AWS keys in GitHub.
 
 Mobile: `eas.json` profiles `dev` (channel `dev`, installable APK / iOS internal build) and `production`.
-Each deploy also publishes an over-the-air update to the matching channel when the `EXPO_TOKEN` repo secret is set,
+Each deploy also publishes an over-the-air update to the matching channel when the SSM parameter `/down/expo-token` exists,
 so installed apps pick up new code on next launch. `npx expo start` locally talks to the dev server (`mobile/.env`).
 
 | Piece | Service |

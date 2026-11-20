@@ -13,6 +13,7 @@ const GENDERS = [
   ['man', 'Man'],
   ['nonbinary', 'Non-binary'],
 ];
+const LOOKING = ['Tonight', 'Casual', 'Ongoing', 'Dates', 'Not sure'];
 
 const eighteenYearsAgo = () => {
   const d = new Date();
@@ -24,7 +25,7 @@ const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2
 // First run after confirming the account: create the dating profile.
 export default function Setup() {
   const { setMe, logout } = useMe();
-  const [f, setF] = useState({ name: '', username: '', gender: '', interestedIn: [] });
+  const [f, setF] = useState({ name: '', username: '', gender: '', interestedIn: [], lookingFor: '', heightCm: '', bio: '' });
   const [birth, setBirth] = useState(null);
   const [showPicker, setShowPicker] = useState(false);
   const [uCheck, setUCheck] = useState(null);
@@ -59,6 +60,7 @@ export default function Setup() {
     if (!birth) return setErr('Add your birthday');
     if (!f.gender) return setErr('Pick how you identify');
     if (!f.interestedIn.length) return setErr('Pick who you want to meet');
+    if (!f.lookingFor) return setErr("Pick what you're looking for");
     if (loc.state === 'idle' || loc.state === 'asking') return setErr('Share your location so we can show people near you');
     setErr('');
     setBusy(true);
@@ -119,6 +121,19 @@ export default function Setup() {
           <Chip key={v} label={l} on={f.interestedIn.includes(v)} onPress={() => toggle(v)} />
         ))}
       </View>
+
+      <Label>Looking for</Label>
+      <View style={s.chips}>
+        {LOOKING.map((v) => (
+          <Chip key={v} label={v} on={f.lookingFor === v} onPress={() => set('lookingFor')(v)} />
+        ))}
+      </View>
+
+      <Label>Height (cm)</Label>
+      <Input placeholder="e.g. 175" value={f.heightCm} onChangeText={set('heightCm')} keyboardType="number-pad" maxLength={3} />
+
+      <Label>About you</Label>
+      <Input placeholder="A line about what you're into" value={f.bio} onChangeText={set('bio')} maxLength={300} multiline />
 
       <Label>Where you are</Label>
       <Pressable

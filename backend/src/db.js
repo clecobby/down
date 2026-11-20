@@ -42,6 +42,7 @@ export function publicUser(u, viewer) {
     photos: photosOf(u),
     tags: u.tags ? u.tags.split(',') : [],
     heightCm: u.height_cm ?? null,
+    lookingFor: u.looking_for || '',
     city: u.city,
     county: u.county,
     sameCounty: !!viewer?.county && viewer.county === u.county && viewer.region === u.region,

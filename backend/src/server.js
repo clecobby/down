@@ -15,6 +15,7 @@ import { snap, distanceKm, reverseGeocode } from './geo.js';
 const PORT = process.env.PORT || 4000;
 const GENDERS = ['man', 'woman', 'nonbinary'];
 export const TAGS = ['Tonight', 'This week', 'Drinks first', 'Can host', 'Can travel', 'Discreet', 'No strings', 'Regular thing', 'Weekends', 'Spontaneous'];
+export const LOOKING = ['Tonight', 'Casual', 'Ongoing', 'Dates', 'Not sure'];
 const MAX_PHOTOS = 6;
 // Lambda requests are capped at ~6 MB (and uploads arrive base64-encoded), so it sets this to 4.
 const MAX_UPLOAD_MB = Number(process.env.MAX_UPLOAD_MB || 10);
@@ -62,12 +63,16 @@ app.post('/api/profile', requireIdentity, async (req, res) => {
   if (!GENDERS.includes(gender)) return bad(res, 'Invalid gender');
   const interests = parseInterests(interestedIn);
   if (!interests) return bad(res, 'Pick who you want to meet');
+  const lookingFor = LOOKING.includes(req.body.lookingFor) ? req.body.lookingFor : '';
+  const bio = String(req.body.bio ?? '').slice(0, 300);
+  const height = req.body.heightCm == null || req.body.heightCm === '' ? null : Math.round(Number(req.body.heightCm));
+  if (height != null && !(height >= 120 && height <= 230)) return bad(res, 'Height should be between 120 and 230 cm');
 
   const t = now();
   const { rows } = await sql.run(
-    `INSERT INTO users (cognito_sub, email, username, password_hash, name, birthdate, gender, interested_in, last_active, created_at)
-     VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?) RETURNING id`,
-    sub, email, username, name.trim().slice(0, 40), birthdate, gender, interests, t, t,
+    `INSERT INTO users (cognito_sub, email, username, password_hash, name, birthdate, gender, interested_in, looking_for, bio, height_cm, last_active, created_at)
+     VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    sub, email, username, name.trim().slice(0, 40), birthdate, gender, interests, lookingFor, bio, height, t, t,
   );
   res.json(selfUser(await userById(rows[0].id)));
 });
@@ -83,8 +88,9 @@ app.get('/api/username-available', async (req, res) => {
 app.get('/api/me', requireAuth, (req, res) => res.json({ ...selfUser(req.user), isAdmin: req.identity.isAdmin }));
 
 app.patch('/api/me', requireAuth, async (req, res) => {
-  const { name, bio, city, availableNow, interestedIn, tags, heightCm, turnOns } = req.body || {};
+  const { name, bio, city, availableNow, interestedIn, tags, heightCm, turnOns, lookingFor } = req.body || {};
   const u = req.user;
+  const look = lookingFor === undefined ? u.looking_for : LOOKING.includes(lookingFor) ? lookingFor : '';
   const turnOnList = turnOns === undefined ? u.turn_ons : parseTurnOns(turnOns).join(',');
   const tagList = tags === undefined ? u.tags : [...new Set((Array.isArray(tags) ? tags : []).filter((t) => TAGS.includes(t)))].slice(0, 5).join(',');
   const height = heightCm === undefined ? u.height_cm : heightCm === null || heightCm === '' ? null : Math.round(Number(heightCm));
@@ -98,7 +104,7 @@ app.patch('/api/me', requireAuth, async (req, res) => {
     if (await usernameTaken(username, u.id)) return bad(res, 'Username is taken', 409);
   }
   await sql.run(
-    'UPDATE users SET username = ?, name = ?, bio = ?, city = ?, available_now = ?, interested_in = ?, tags = ?, height_cm = ?, turn_ons = ? WHERE id = ?',
+    'UPDATE users SET username = ?, name = ?, bio = ?, city = ?, available_now = ?, interested_in = ?, tags = ?, height_cm = ?, turn_ons = ?, looking_for = ? WHERE id = ?',
     username,
     (name ?? u.name).trim() || u.name,
     String(bio ?? u.bio).slice(0, 300),
@@ -108,6 +114,7 @@ app.patch('/api/me', requireAuth, async (req, res) => {
     tagList,
     height,
     turnOnList,
+    look,
     u.id,
   );
   res.json(selfUser(await userById(u.id)));

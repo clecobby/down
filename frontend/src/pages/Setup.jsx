@@ -7,11 +7,12 @@ const GENDERS = [
   ['man', 'Man'],
   ['nonbinary', 'Non-binary'],
 ];
+const LOOKING = ['Tonight', 'Casual', 'Ongoing', 'Dates', 'Not sure'];
 
 // First run after confirming the account: create the dating profile.
 export default function Setup() {
   const { setMe, logout } = useMe();
-  const [f, setF] = useState({ name: '', username: '', birthdate: '', gender: '', interestedIn: [] });
+  const [f, setF] = useState({ name: '', username: '', birthdate: '', gender: '', interestedIn: [], lookingFor: '', heightCm: '', bio: '' });
   const [uCheck, setUCheck] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -42,6 +43,7 @@ export default function Setup() {
     e.preventDefault();
     if (!f.gender) return setErr('Pick how you identify');
     if (!f.interestedIn.length) return setErr('Pick who you want to meet');
+    if (!f.lookingFor) return setErr("Pick what you're looking for");
     if (loc.state === 'idle' || loc.state === 'asking') return setErr('Share your location so we can show people near you');
     setErr('');
     setBusy(true);
@@ -95,6 +97,19 @@ export default function Setup() {
             <button type="button" key={v} className={`chip ${f.interestedIn.includes(v) ? 'on' : ''}`} onClick={() => toggle(v)}>{l}</button>
           ))}
         </div>
+
+        <label className="label">Looking for</label>
+        <div className="chips">
+          {LOOKING.map((v) => (
+            <button type="button" key={v} className={`chip ${f.lookingFor === v ? 'on' : ''}`} onClick={() => setF({ ...f, lookingFor: v })}>{v}</button>
+          ))}
+        </div>
+
+        <label className="label">Height (cm) <span className="muted small">optional</span></label>
+        <input type="number" min="120" max="230" placeholder="e.g. 175" value={f.heightCm} onChange={set('heightCm')} />
+
+        <label className="label">About you <span className="muted small">optional</span></label>
+        <textarea placeholder="A line about what you're into" value={f.bio} onChange={set('bio')} maxLength={300} rows={3} />
 
         <label className="label">Where you are</label>
         <button type="button" className={`now-toggle ${loc.state === 'ok' ? 'on' : ''}`} onClick={askLocation} disabled={loc.state === 'asking'}>

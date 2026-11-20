@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signIn, signUp } from 'aws-amplify/auth';
 import { authMessage } from '../cognito.js';
+import { api } from '../api.js';
 import { useMe } from '../me.js';
 
 export default function Auth({ mode }) {
@@ -18,11 +19,16 @@ export default function Auth({ mode }) {
     if (signup && !f.agree) return setErr('Please confirm you are 18+ and agree to the rules');
     setErr('');
     setBusy(true);
-    const email = f.email.trim().toLowerCase();
+    let email = f.email.trim().toLowerCase();
     try {
       if (signup) {
         await signUp({ username: email, password: f.password, options: { userAttributes: { email }, autoSignIn: true } });
         return nav('/confirm', { state: { email } });
+      }
+      // Allow logging in with a username: resolve it to the account's email (server checks the password first).
+      if (!email.includes('@')) {
+        const r = await api('/login-email', { method: 'POST', body: { login: f.email.trim(), password: f.password } });
+        email = r.email;
       }
       const { nextStep } = await signIn({ username: email, password: f.password });
       if (nextStep.signInStep === 'CONFIRM_SIGN_UP') return nav('/confirm', { state: { email, resend: true } });
@@ -39,7 +45,15 @@ export default function Auth({ mode }) {
       <Link to="/" className="logo">down</Link>
       <h1>{signup ? 'Get in.' : 'Welcome back.'}</h1>
       <form onSubmit={submit} className="form">
-        <input type="email" placeholder="Email" value={f.email} onChange={set('email')} autoCapitalize="none" autoComplete="email" required />
+        <input
+          type={signup ? 'email' : 'text'}
+          placeholder={signup ? 'Email' : 'Username or email'}
+          value={f.email}
+          onChange={set('email')}
+          autoCapitalize="none"
+          autoComplete={signup ? 'email' : 'username'}
+          required
+        />
         <input
           type="password"
           placeholder={signup ? 'Password (10+ chars, Aa, 1)' : 'Password'}

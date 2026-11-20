@@ -11,8 +11,10 @@ import { admin } from './admin.js';
 import { TURN_ONS, inCommon, parseTurnOns } from './turnons.js';
 import { normalizeUsername, usernameError } from './username.js';
 import { snap, distanceKm, reverseGeocode } from './geo.js';
+import { CognitoIdentityProviderClient, InitiateAuthCommand } from '@aws-sdk/client-cognito-identity-provider';
 
 const PORT = process.env.PORT || 4000;
+const cognito = new CognitoIdentityProviderClient({ region: process.env.AWS_REGION || 'us-east-1' });
 const GENDERS = ['man', 'woman', 'nonbinary'];
 export const TAGS = ['Tonight', 'This week', 'Drinks first', 'Can host', 'Can travel', 'Discreet', 'No strings', 'Regular thing', 'Weekends', 'Spontaneous'];
 export const LOOKING = ['Tonight', 'Casual', 'Ongoing', 'Dates', 'Not sure'];
@@ -81,6 +83,40 @@ app.get('/api/username-available', async (req, res) => {
   const u = normalizeUsername(req.query.u);
   const error = usernameError(u) || ((await usernameTaken(u)) ? 'Username is taken' : null);
   res.json({ username: u, available: !error, error });
+});
+
+// Lets people sign in with a username OR an email. Accounts live in Cognito keyed by email, so this
+// maps a username to its email — but only after the password checks out, so a username can't be used
+// to harvest someone's email. The client then completes sign-in with Cognito as usual.
+app.post('/api/login-email', async (req, res) => {
+  const { login, password } = req.body || {};
+  if (!login || !password) return bad(res, 'Enter your username or email and your password');
+  const wrong = () => res.status(401).json({ error: 'Wrong username or password' });
+
+  let email = String(login).trim().toLowerCase();
+  if (!email.includes('@')) {
+    const row = await sql.one('SELECT email FROM users WHERE username = ?', normalizeUsername(login));
+    if (!row) return wrong();
+    email = String(row.email).toLowerCase();
+  }
+
+  // Verify the password before revealing the email. Try each configured app client until one has the
+  // USER_PASSWORD_AUTH flow enabled (the mobile client does).
+  const clientIds = (process.env.COGNITO_CLIENT_ID || '').split(',').filter(Boolean);
+  for (const ClientId of clientIds) {
+    try {
+      await cognito.send(
+        new InitiateAuthCommand({ AuthFlow: 'USER_PASSWORD_AUTH', ClientId, AuthParameters: { USERNAME: email, PASSWORD: password } }),
+      );
+      return res.json({ email });
+    } catch (e) {
+      // Correct password but unconfirmed account: the client will route to the confirm screen.
+      if (e.name === 'UserNotConfirmedException') return res.json({ email, unconfirmed: true });
+      if (e.name === 'NotAuthorizedException' || e.name === 'UserNotFoundException') return wrong();
+      // InvalidParameterException = this client doesn't allow the flow; try the next one.
+    }
+  }
+  return wrong();
 });
 
 // ---------- me ----------

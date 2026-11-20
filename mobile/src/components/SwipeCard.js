@@ -68,6 +68,7 @@ function CardBody({ user, index = 0, showHint }) {
           {user.sameCounty ? `In ${user.county}` : user.county}
           {distanceLabel(user)}
         </Text>
+        {!!user.lookingFor && <Text style={st.place}>Looking for {user.lookingFor}</Text>}
         {user.inCommon?.length > 0 && (
           <View style={st.common}>
             <Text style={st.commonText}>🔥 {user.inCommon.length} in common</Text>

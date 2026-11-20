@@ -106,6 +106,7 @@ export function ProfileContent({ user, onClose, initialPage = 0, ...scrollProps 
         )}
 
         <View style={st.section}>
+          {!!user.lookingFor && <Row icon="heart-outline" text={`Looking for ${user.lookingFor}`} />}
           {user.heightCm != null && <Row icon="resize-outline" text={`${user.heightCm} cm`} />}
           <Row icon={user.gender === 'woman' ? 'female' : user.gender === 'man' ? 'male' : 'male-female'} text={GENDER[user.gender] || user.gender} />
           <Row icon="location-outline" text={`${user.county}${distanceLabel(user)}`} />

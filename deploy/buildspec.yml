@@ -18,7 +18,8 @@ phases:
     commands:
       - |
         if [ "$CODEBUILD_BUILD_SUCCEEDING" = 1 ] && EXPO_TOKEN=$(aws ssm get-parameter --name /down/expo-token --with-decryption --query Parameter.Value --output text 2>/dev/null); then
-          export EXPO_TOKEN EXPO_PUBLIC_API_URL="$API_URL"
+          # The pipeline hands over a zip without git history; tell EAS not to look for git.
+          export EXPO_TOKEN EXPO_PUBLIC_API_URL="$API_URL" EAS_NO_VCS=1
           cd mobile && npm ci --no-audit --no-fund \
             && npx --yes eas-cli@latest update --channel "$CHANNEL" --message "$STAGE deploy $(echo "$CODEBUILD_RESOLVED_SOURCE_VERSION" | cut -c1-7)" --non-interactive
         else

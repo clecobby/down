@@ -85,7 +85,7 @@ export default function Chat() {
           <div className="row-title">{u.name}, {u.age} <span className="muted small">@{u.username}</span></div>
           <div className="muted small">
             {u.availableNow ? '● available now · ' : ''}
-            {u.county}{u.distanceKm != null && ` · ~${u.distanceKm} km`}
+            {u.county}{u.distanceMi != null && ` · ~${u.distanceMi} mi away`}
           </div>
         </div>
         <button className="icon" onClick={() => setMenu(!menu)}>⋯</button>

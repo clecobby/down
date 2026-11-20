@@ -22,6 +22,16 @@ export function fuzzyKm(km) {
   return Math.round(km / 10) * 10;
 }
 
+// Same coarse buckets, expressed in miles (what the app shows people).
+export function fuzzyMi(km) {
+  if (km == null) return null;
+  const mi = km * 0.621371;
+  if (mi < 1) return 1;
+  if (mi < 10) return Math.round(mi);
+  if (mi < 50) return Math.round(mi / 5) * 5;
+  return Math.round(mi / 10) * 10;
+}
+
 // Reverse geocode lat/lng → { county, region, country }.
 // Dev: OpenStreetMap Nominatim (free, 1 req/s, needs a User-Agent).
 // Prod on AWS: swap for Amazon Location Service `ReverseGeocode` (geo-places), which returns

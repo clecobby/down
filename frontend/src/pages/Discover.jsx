@@ -57,7 +57,7 @@ function Card({ user, top, onSwipe, flingRef }) {
         </div>
         <div className="muted">
           {user.sameCounty ? `In ${user.county}` : user.county}
-          {user.distanceKm != null && ` · ${user.distanceKm <= 1 ? '< 1' : `~${user.distanceKm}`} km`}
+          {user.distanceMi != null && ` · ${user.distanceMi <= 1 ? '< 1' : `~${user.distanceMi}`} mi away`}
         </div>
         {user.bio && <p>{user.bio}</p>}
       </div>

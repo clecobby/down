@@ -16,7 +16,7 @@ export const GLIDE = { duration: 260, easing: Easing.out(Easing.cubic) };
 // One soft tap when a like lands; nothing on pass, nothing while dragging.
 const softTap = (dir) => dir === 'like' && Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
-export const distanceLabel = (u) => (u.distanceKm != null ? ` · ${u.distanceKm <= 1 ? '< 1' : `~${u.distanceKm}`} km` : '');
+export const distanceLabel = (u) => (u.distanceMi != null ? ` · ${u.distanceMi <= 1 ? '< 1' : `~${u.distanceMi}`} mi away` : '');
 export const photosOfUser = (u) => (u.photos?.length ? u.photos : u.photo ? [u.photo] : []);
 
 // Photos sit side by side and slide like a carousel when `index` changes.

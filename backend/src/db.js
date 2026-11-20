@@ -1,5 +1,5 @@
 import { sql } from './sql.js';
-import { distanceKm, fuzzyKm } from './geo.js';
+import { distanceKm, fuzzyKm, fuzzyMi } from './geo.js';
 import { inCommon, turnOnsOf } from './turnons.js';
 
 export { sql };
@@ -48,6 +48,7 @@ export function publicUser(u, viewer) {
     // Only the overlap with the viewer is ever shared, never someone's full list.
     inCommon: viewer ? inCommon(viewer, u) : [],
     distanceKm: fuzzyKm(km),
+    distanceMi: fuzzyMi(km),
     availableNow: !!u.available_now,
     lastActive: u.last_active,
   };

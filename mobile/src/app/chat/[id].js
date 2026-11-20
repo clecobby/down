@@ -118,7 +118,7 @@ export default function Chat() {
           <Text style={[s.muted, { fontSize: 12 }]}>
             {u.availableNow && <Text style={{ color: colors.ok }}>● available now · </Text>}
             {u.county}
-            {u.distanceKm != null && ` · ~${u.distanceKm} km`}
+            {u.distanceMi != null && ` · ~${u.distanceMi} mi away`}
           </Text>
         </View>
         <Pressable onPress={() => setSheet('menu')} hitSlop={12}>

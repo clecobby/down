@@ -1,10 +1,13 @@
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 
-// Talks to Amazon Cognito's API directly (no native modules, so it runs in Expo Go).
-// Uses the mobile app client, which allows USER_PASSWORD_AUTH; the password only travels over TLS to Cognito.
-const REGION = process.env.EXPO_PUBLIC_COGNITO_REGION;
+// Auth goes through our own API, which forwards each call to Amazon Cognito server-side. Some mobile
+// networks can't reach cognito-idp directly, but they can reach our API. (The mobile app client allows
+// USER_PASSWORD_AUTH; the password travels over TLS to our API and on to Cognito.)
 const CLIENT_ID = process.env.EXPO_PUBLIC_COGNITO_CLIENT_ID;
-const ENDPOINT = `https://cognito-idp.${REGION}.amazonaws.com/`;
+const devHost = Constants.expoConfig?.hostUri?.split(':')[0] || 'localhost';
+const API = process.env.EXPO_PUBLIC_API_URL || `http://${devHost}:4000`;
+const PROXY = `${API}/api/cognito`;
 
 class CognitoError extends Error {
   constructor(name, message) {
@@ -16,10 +19,10 @@ class CognitoError extends Error {
 async function call(action, body) {
   let res;
   try {
-    res = await fetch(ENDPOINT, {
+    res = await fetch(PROXY, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': `AWSCognitoIdentityProviderService.${action}` },
-      body: JSON.stringify(body),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, body }),
     });
   } catch {
     throw new CognitoError('NetworkError', "Can't reach the login service. Check your connection.");

@@ -119,6 +119,33 @@ app.post('/api/login-email', async (req, res) => {
   return wrong();
 });
 
+// Auth proxy for the mobile app. Some mobile networks can't reach cognito-idp.amazonaws.com directly,
+// but they can reach our API — so the phone posts its Cognito calls here and the Lambda (which reaches
+// Cognito fine) forwards them anonymously. Only these unauthenticated app-client actions are allowed,
+// and nothing is signed with AWS credentials, so admin APIs can't be reached through here.
+const COGNITO_ACTIONS = new Set([
+  'SignUp', 'ConfirmSignUp', 'ResendConfirmationCode', 'InitiateAuth',
+  'GetTokensFromRefreshToken', 'RevokeToken', 'ForgotPassword', 'ConfirmForgotPassword', 'DeleteUser',
+]);
+app.post('/api/cognito', async (req, res) => {
+  const { action, body } = req.body || {};
+  if (!COGNITO_ACTIONS.has(action)) return bad(res, 'Unsupported action', 400);
+  const region = process.env.AWS_REGION || 'us-east-1';
+  let r;
+  try {
+    r = await fetch(`https://cognito-idp.${region}.amazonaws.com/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Amz-Target': `AWSCognitoIdentityProviderService.${action}` },
+      body: JSON.stringify(body || {}),
+    });
+  } catch (e) {
+    console.error('cognito proxy fetch failed', action, e?.message);
+    return res.status(502).json({ __type: 'NetworkError', message: "Couldn't reach the login service" });
+  }
+  // Pass Cognito's response straight back (its JSON shape and __type errors are what the app expects).
+  res.status(r.status).type('application/x-amz-json-1.1').send(await r.text());
+});
+
 // ---------- me ----------
 
 app.get('/api/me', requireAuth, (req, res) => res.json({ ...selfUser(req.user), isAdmin: req.identity.isAdmin }));

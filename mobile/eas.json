@@ -7,11 +7,17 @@
       "env": { "EXPO_PUBLIC_API_URL": "https://d3nrslazsd4mxv.cloudfront.net" },
       "android": { "buildType": "apk" }
     },
+    "testflight": {
+      "channel": "dev",
+      "distribution": "store",
+      "autoIncrement": true,
+      "env": { "EXPO_PUBLIC_API_URL": "https://d3nrslazsd4mxv.cloudfront.net" }
+    },
     "production": {
       "channel": "production",
       "autoIncrement": true,
       "env": { "EXPO_PUBLIC_API_URL": "https://d2lfawokdyd1nt.cloudfront.net" }
     }
   },
-  "submit": { "production": {} }
+  "submit": { "testflight": {}, "production": {} }
 }

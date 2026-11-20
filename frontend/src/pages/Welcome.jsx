@@ -4,7 +4,7 @@ export default function Welcome() {
   return (
     <div className="screen welcome">
       <div className="logo big">down</div>
-      <p className="fine">Clem</p>
+      <p className="fine">Gogogo</p>
       <p className="tagline">
         Everyone here wants the same thing.
         <br />

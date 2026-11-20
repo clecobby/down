@@ -13,7 +13,7 @@ export default function Welcome() {
   return (
     <SafeAreaView style={[s.screen, { padding: 24, justifyContent: 'center', gap: 32 }]}>
       <Logo size={72} />
-      <Text style={[s.muted, { fontSize: 13 }]}>Clem</Text>
+      <Text style={[s.muted, { fontSize: 13 }]}>Gogogo</Text>
       <Text style={{ color: colors.text, fontSize: 26, fontWeight: '700', lineHeight: 33, letterSpacing: -0.5 }}>
         Everyone here wants the same thing.{'\n'}
         <Text style={{ color: colors.accent }}>Skip the guessing.</Text>

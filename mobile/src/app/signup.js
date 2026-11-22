@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Switch, Text, View } from 'react-native';
 import { Link, router } from 'expo-router';
-import { authMessage, rememberForAutoSignIn, signUp } from '../lib/cognito';
+import { authMessage, cleanEmail, rememberForAutoSignIn, signUp } from '../lib/cognito';
 import { colors } from '../lib/theme';
 import { Button, Input, s } from '../components/ui';
 import AuthScreen from '../components/AuthScreen';
@@ -15,7 +15,7 @@ export default function Signup() {
 
   async function submit() {
     if (!agree) return setErr('Please confirm you are 18+ and agree to the rules');
-    const e = email.trim().toLowerCase();
+    const e = cleanEmail(email);
     setErr('');
     setBusy(true);
     try {

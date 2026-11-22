@@ -44,7 +44,18 @@ const MESSAGES = {
   InvalidPasswordException: 'Password needs 10+ characters with upper and lower case letters and a number.',
   InvalidParameterException: 'Please check what you entered.',
 };
-export const authMessage = (e) => MESSAGES[e?.name] || e?.message || 'Something went wrong';
+export function authMessage(e) {
+  // Cognito's InvalidParameterException covers several input problems; say which one.
+  if (e?.name === 'InvalidParameterException') {
+    const m = e.message || '';
+    if (/'password'/.test(m)) return "Your password can't start or end with a space.";
+    if (/'username'|email/i.test(m)) return "That email doesn't look right. Check for spaces or typos.";
+  }
+  return MESSAGES[e?.name] || e?.message || 'Something went wrong';
+}
+
+// Emails: drop spaces and invisible characters that keyboards and autofill sometimes add.
+export const cleanEmail = (s) => (s || '').replace(/[\s​-‍⁠﻿]/g, '').toLowerCase();
 
 // ---- token storage (each token in its own key: SecureStore values should stay small) ----
 

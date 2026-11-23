@@ -1,11 +1,12 @@
-// Safety: live location between matches, friend links, SOS, deletion and holds. Run: npm test
+// Safety: live location between matches, friend links, SOS, deletion and holds. Runs on SQLite by
+// default, or against Aurora DSQL with DSQL_HOST set (only touches rows it creates, and removes them). Run: npm test
 import { after, before, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-process.env.DB_PATH = path.join(os.tmpdir(), `down-safety-test-${process.pid}.db`);
+if (!process.env.DSQL_HOST) process.env.DB_PATH = path.join(os.tmpdir(), `down-safety-test-${process.pid}.db`);
 process.env.DEMO_MODE = '0';
 
 const { sql } = await import('../src/db.js');
@@ -38,24 +39,35 @@ before(async () => {
 });
 after(async () => {
   server.close();
+  const ids = [aId, bId, cId].filter(Boolean);
+  if (ids.length) {
+    const inIds = `(${ids.join(',')})`;
+    await sql.run(`DELETE FROM location_points WHERE user_id IN ${inIds}`);
+    await sql.run(`DELETE FROM live_shares WHERE a_id IN ${inIds} OR b_id IN ${inIds}`);
+    await sql.run(`DELETE FROM sos_alerts WHERE user_id IN ${inIds}`);
+    await sql.run(`DELETE FROM admin_log WHERE admin = 'admin@test' AND (target LIKE 'report:%' OR target LIKE 'sos:%' OR target IN (${ids.map((i) => `'${i}'`).join(',')}))`);
+    await sql.run(`DELETE FROM users WHERE id IN ${inIds}`);
+  }
   await sql.end();
-  for (const f of ['', '-shm', '-wal']) fs.rmSync(process.env.DB_PATH + f, { force: true });
+  if (process.env.DB_PATH) for (const f of ['', '-shm', '-wal']) fs.rmSync(process.env.DB_PATH + f, { force: true });
 });
 
 const as = async (sub, p, method = 'GET', body) => {
   const r = await fetch(base + p, { method, headers: { 'x-test-sub': sub, 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
   return { status: r.status, body: await r.json().catch(() => null) };
 };
-const A = 'safe-a', B = 'safe-b', C = 'safe-c';
+const run = Date.now().toString(36);
+const A = `safe-a-${run}`, B = `safe-b-${run}`, C = `safe-c-${run}`;
 const HOME = { lat: 40.71, lng: -74.0 };
-let aId, bId, matchId;
+let aId, bId, cId, matchId;
+const mine = () => `user_id IN (${[aId, bId, cId].join(',')})`;
 
 test('setup: two matched people', async () => {
   const mk = async (sub, name, gender, into) =>
-    (await as(sub, '/profile', 'POST', { name, username: `${name.toLowerCase()}_safe`, birthdate: '1990-01-01', gender, interestedIn: [into] })).body.id;
+    (await as(sub, '/profile', 'POST', { name, username: `${name.toLowerCase()}_${run}`.slice(0, 20), birthdate: '1990-01-01', gender, interestedIn: [into] })).body.id;
   aId = await mk(A, 'Ann', 'woman', 'man');
   bId = await mk(B, 'Ben', 'man', 'woman');
-  await mk(C, 'Cal', 'man', 'woman');
+  cId = await mk(C, 'Cal', 'man', 'woman');
   await as(A, '/swipe', 'POST', { userId: bId, dir: 'like' });
   matchId = (await as(B, '/swipe', 'POST', { userId: aId, dir: 'like' })).body.match.id;
   assert.ok(matchId);
@@ -89,7 +101,7 @@ test('once accepted, each sees the other moving', async () => {
 });
 
 test('points are encrypted at rest', async () => {
-  const rows = await sql.all('SELECT sealed FROM location_points');
+  const rows = await sql.all(`SELECT sealed FROM location_points WHERE ${mine()}`);
   assert.ok(rows.length >= 3);
   for (const r of rows) assert.ok(r.sealed.startsWith('v1.') && !r.sealed.includes('40.7'));
 });
@@ -139,19 +151,19 @@ test('a report holds both trails, even from their owners, until an admin resolve
   assert.ok((await as(A, '/safety/locations', 'DELETE')).body.held >= 1);
 
   // Expired points that are held survive the cleanup.
-  await sql.run('UPDATE location_points SET expires_at = 1');
+  await sql.run(`UPDATE location_points SET expires_at = 1 WHERE ${mine()}`);
   await tidy(true);
   assert.ok(Number((await sql.one('SELECT count(*) n FROM location_points WHERE hold = ?', ref)).n) >= 3);
 
   const list = (await as(A, '/admin/reports')).body;
   assert.ok(list.find((r) => r.id === report.id).held_points >= 3);
   const trail = (await as(A, `/admin/safety/trail?ref=${ref}`)).body;
-  assert.deepEqual(trail.people.map((p) => p.username).sort(), ['ann_safe', 'ben_safe']);
+  assert.deepEqual(trail.people.map((p) => p.userId).sort((x, y) => x - y), [aId, bId].sort((x, y) => x - y));
   assert.ok(await sql.one("SELECT 1 FROM admin_log WHERE action = 'view-location' AND target = ?", ref), 'viewing is logged');
 
   await as(A, `/admin/reports/${report.id}`, 'POST', { action: 'dismiss' });
   await tidy(true);
-  assert.equal(Number((await sql.one('SELECT count(*) n FROM location_points')).n), 0, 'released and past 24h: gone');
+  assert.equal(Number((await sql.one(`SELECT count(*) n FROM location_points WHERE ${mine()}`)).n), 0, 'released and past 24h: gone');
   assert.equal((await as(A, `/admin/safety/trail?ref=${ref}`)).status, 404, 'closed cases cannot be opened');
 });
 
@@ -160,20 +172,21 @@ test('SOS records where you are and holds it for the admins', async () => {
   assert.ok(r.ok);
   assert.equal((await as(C, '/safety/location', 'POST', { lat: 40.801, lng: -73.9 })).status, 200, 'keeps sending after SOS');
   assert.equal((await as(C, '/safety/locations', 'DELETE')).body.held, 2);
-  const cases = (await as(A, '/admin/safety')).body.sos;
-  assert.equal(cases[0].user.username, 'cal_safe');
-  assert.equal(cases[0].points, 2);
+  const mineCase = () => as(A, '/admin/safety').then((x) => x.body.sos.find((c) => c.id === r.id));
+  const c = await mineCase();
+  assert.equal(c.user.id, cId);
+  assert.equal(c.points, 2);
   await as(A, `/admin/sos/${r.id}/resolve`, 'POST');
-  assert.equal((await as(A, '/admin/safety')).body.sos.length, 0);
+  assert.equal(await mineCase(), undefined);
 });
 
 test('shares end on their own after 3 hours', async () => {
   // The report above unmatched them; match Ann with Cal to try again.
-  await as(A, '/swipe', 'POST', { userId: (await sql.one("SELECT id FROM users WHERE cognito_sub = 'safe-c'")).id, dir: 'like' });
+  await as(A, '/swipe', 'POST', { userId: cId, dir: 'like' });
   const m = (await as(C, '/swipe', 'POST', { userId: aId, dir: 'like' })).body.match;
   await as(A, `/matches/${m.id}/live`, 'POST');
   await as(C, `/matches/${m.id}/live/accept`, 'POST');
-  await sql.run("UPDATE live_shares SET ends_at = ? WHERE status = 'active'", Date.now() - 1);
+  await sql.run("UPDATE live_shares SET ends_at = ? WHERE status = 'active' AND match_id = ?", Date.now() - 1, m.id);
   assert.equal((await as(A, `/matches/${m.id}/live`)).body.live, null);
   assert.equal((await as(A, '/safety/location', 'POST', HOME)).status, 409);
 });

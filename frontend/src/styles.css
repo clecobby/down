@@ -289,3 +289,10 @@ input[type='date'], input[type='datetime-local'] { color-scheme: dark; }
 .report-card > div:first-child { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .link.strong { color: var(--text); font-weight: 700; padding: 0; font-size: 15px; }
 .settings { max-width: 560px; }
+
+/* ---------- friend location page ---------- */
+.safe-screen { max-width: 640px; height: auto; min-height: 100%; overflow-y: auto; margin: 0 auto; padding: 24px 16px 40px; display: flex; flex-direction: column; gap: 12px; }
+.safe-map { width: 100%; height: 360px; border: 1px solid var(--line, #2a2a2e); border-radius: 16px; background: #151517; }
+.safe-sos { background: #d70015; color: #fff; padding: 12px 14px; border-radius: 12px; font-weight: 700; line-height: 1.4; }
+.trail-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.trail-table td, .trail-table th { padding: 6px 8px; border-bottom: 1px solid var(--line, #2a2a2e); text-align: left; }

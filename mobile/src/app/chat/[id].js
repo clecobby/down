@@ -121,10 +121,26 @@ export default function Chat() {
             {u.distanceMi != null && ` · ~${u.distanceMi} mi away`}
           </Text>
         </View>
+        <Pressable onPress={() => router.push(`/live/${id}`)} hitSlop={12}>
+          <Ionicons name="shield-checkmark" size={22} color={chat.live?.status === 'active' ? colors.ok : colors.text} />
+        </Pressable>
         <Pressable onPress={() => setSheet('menu')} hitSlop={12}>
           <Ionicons name="ellipsis-horizontal" size={22} color={colors.text} />
         </Pressable>
       </View>
+
+      {chat.live && (chat.live.status === 'active' || !chat.live.startedByMe) && (
+        <Pressable
+          onPress={() => router.push(`/live/${id}`)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.line }}
+        >
+          <Ionicons name="navigate" size={18} color={chat.live.status === 'active' ? colors.ok : colors.accent} />
+          <Text style={[s.text, { flex: 1 }]}>
+            {chat.live.status === 'active' ? `Live location on with ${u.name}` : `${u.name} wants to share live location`}
+          </Text>
+          <Text style={{ color: colors.accent, fontWeight: '700' }}>Open</Text>
+        </Pressable>
+      )}
 
       <DownSignal down={chat.down} name={u.name} onSend={() => setDown(true)} onWithdraw={() => setDown(false)} onPlan={() => setPlanning(true)} />
 

@@ -9,6 +9,7 @@ import {
 import { ageFrom, getSetting, now, photosOf, setSetting, sql } from './db.js';
 import { requireAdmin } from './auth.js';
 import { deletePhoto } from './storage.js';
+import { forgetUser, heldTrail, releaseHold, resolveSos, safetyCases } from './safety.js';
 
 // Admin dashboard API. Every route requires membership in the Cognito "admins" group,
 // and every change is written to admin_log.
@@ -159,6 +160,7 @@ admin.delete('/users/:id', async (req, res) => {
   if (!u) return res.status(404).json({ error: 'User not found' });
   if (u.cognito_sub && u.cognito_sub === req.identity.sub) return res.status(400).json({ error: "You can't delete your own account here" });
   await Promise.all(photosOf(u).map(deletePhoto));
+  await forgetUser(u.id);
   await sql.run('DELETE FROM users WHERE id = ?', u.id);
   const login = await cognitoCall(AdminDeleteUserCommand, u.cognito_sub);
   await log(req, 'delete', u.id, `${u.username} (login: ${login})`);
@@ -171,6 +173,7 @@ admin.get('/reports', async (req, res) => {
       `SELECT r.id, r.reason, r.created_at, r.resolved_at, COALESCE(r.status, 'open') status,
               p.id reporter_id, p.username reporter, t.id reported_id, t.username reported, t.name reported_name,
               t.banned reported_banned,
+              (SELECT count(*) FROM location_points lp WHERE lp.hold = 'report:' || CAST(r.id AS TEXT)) held_points,
               (SELECT count(*) FROM reports x WHERE x.reported_id = t.id) reported_total
        FROM reports r JOIN users p ON p.id = r.reporter_id JOIN users t ON t.id = r.reported_id
        WHERE COALESCE(r.status, 'open') = ? ORDER BY r.id DESC LIMIT 200`,
@@ -190,6 +193,8 @@ admin.post('/reports/:id', async (req, res) => {
     login = await suspend(req, u, `Report #${r.id}: ${r.reason}`.slice(0, 300));
   }
   await sql.run('UPDATE reports SET status = ?, resolved_at = ? WHERE id = ?', action === 'dismiss' ? 'dismissed' : 'actioned', now(), r.id);
+  // Case closed: held location trails go back to normal 24-hour deletion.
+  await releaseHold(`report:${r.id}`);
   await log(req, `report-${action}`, r.reported_id, `report #${r.id}`);
   res.json({ ok: true, login });
 });
@@ -208,4 +213,32 @@ admin.patch('/settings', async (req, res) => {
 
 admin.get('/log', async (req, res) => {
   res.json(await sql.all('SELECT * FROM admin_log ORDER BY id DESC LIMIT 100'));
+});
+
+// ---------- safety ----------
+
+admin.get('/safety', async (req, res) => {
+  res.json({ sos: await safetyCases() });
+});
+
+// Decrypt a held location trail. Only for an open case, and every look is logged.
+admin.get('/safety/trail', async (req, res) => {
+  const ref = String(req.query.ref || '');
+  const m = ref.match(/^(report|sos):(\d+)$/);
+  if (!m) return res.status(400).json({ error: 'Invalid case' });
+  const open =
+    m[1] === 'report'
+      ? await sql.one("SELECT 1 FROM reports WHERE id = ? AND COALESCE(status, 'open') = 'open'", m[2])
+      : await sql.one("SELECT 1 FROM sos_alerts WHERE id = ? AND status IN ('open', 'cancelled')", m[2]);
+  if (!open) return res.status(404).json({ error: 'That case is closed' });
+  await log(req, 'view-location', ref, 'opened held location trail');
+  res.json(await heldTrail(ref));
+});
+
+admin.post('/sos/:id/resolve', async (req, res) => {
+  const a = await sql.one('SELECT * FROM sos_alerts WHERE id = ?', req.params.id);
+  if (!a) return res.status(404).json({ error: 'Not found' });
+  await resolveSos(a.id);
+  await log(req, 'sos-resolve', a.user_id, `sos #${a.id}`);
+  res.json({ ok: true });
 });

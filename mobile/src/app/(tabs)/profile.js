@@ -196,6 +196,7 @@ export default function Profile() {
           </View>
           <View style={{ gap: 12, marginTop: 16 }}>
             <Button title="Save" onPress={() => save({ ...f, heightCm: f.heightCm || null })} />
+            <Button title="Safety: SOS, share location, delete history" variant="ghost" onPress={() => router.push('/safety')} />
             <Button title="Log out" variant="ghost" onPress={logout} />
             <Pressable onPress={remove} style={{ padding: 12, alignItems: 'center' }}>
               <Text style={{ color: colors.accent }}>Delete account</Text>

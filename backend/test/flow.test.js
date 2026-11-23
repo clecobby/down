@@ -72,6 +72,11 @@ test('edit profile: turn-ons, tags, height', async () => {
   await as(B, '/me', 'PATCH', { turnOns: ['oral', 'toys'] });
 });
 
+test('people without a photo stay out of discover', async () => {
+  assert.ok(!(await as(B, '/discover')).body.some((u) => u.id === aId), 'no photo yet');
+  await sql.run("UPDATE users SET photo = '/uploads/test.jpg' WHERE id IN (?, ?)", aId, bId);
+});
+
 test('discover shows each other with the overlap only', async () => {
   const d = (await as(B, '/discover')).body;
   const ann = d.find((u) => u.id === aId);

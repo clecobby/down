@@ -8,6 +8,7 @@ import { now, ageFrom, getSetting, photosOf, publicUser, selfUser } from './db.j
 import { requireAuth, requireIdentity } from './auth.js';
 import { deletePhoto, processImage, savePhoto, uploadDir } from './storage.js';
 import { admin } from './admin.js';
+import { forgetUser, holdForPair, liveSummary, safety } from './safety.js';
 import { TURN_ONS, inCommon, parseTurnOns } from './turnons.js';
 import { normalizeUsername, usernameError } from './username.js';
 import { snap, distanceKm, reverseGeocode } from './geo.js';
@@ -275,6 +276,7 @@ app.get('/api/turn-ons', (req, res) => res.json(TURN_ONS));
 app.delete('/api/me', requireAuth, async (req, res) => {
   // Remove their uploaded photos too (awaited: on Lambda, unfinished work can be frozen after the response).
   await Promise.all(photosOf(req.user).map(deletePhoto));
+  await forgetUser(req.user.id);
   await sql.run('DELETE FROM users WHERE id = ?', req.user.id);
   res.json({ ok: true });
 });
@@ -289,6 +291,7 @@ app.get('/api/discover', requireAuth, async (req, res) => {
     `SELECT u.*, (SELECT created_at FROM swipes WHERE from_id = ? AND to_id = u.id) AS seen_at FROM users u
      WHERE u.id != ?
        AND COALESCE(u.banned, 0) = 0
+       AND (u.cognito_sub IS NULL OR COALESCE(u.photo, '') != '')
        AND (',' || u.interested_in || ',') LIKE ?
        AND (u.id NOT IN (SELECT to_id FROM swipes WHERE from_id = ?) OR (? = 1 AND u.cognito_sub IS NULL))
        AND u.id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id = ?)
@@ -427,11 +430,12 @@ app.get('/api/matches/:id', requireAuth, async (req, res) => {
   if (!m) return;
   const otherId = m.a === req.user.id ? m.b : m.a;
   const after = Number(req.query.after) || 0;
-  const [messages, meetups, other, down] = await Promise.all([
+  const [messages, meetups, other, down, live] = await Promise.all([
     sql.all('SELECT * FROM messages WHERE match_id = ? AND id > ? ORDER BY id', m.id, after),
     sql.all('SELECT * FROM meetups WHERE match_id = ? ORDER BY id', m.id),
     userById(otherId),
     downState(m.id, req.user.id),
+    liveSummary(m.id, req.user),
   ]);
   res.json({
     id: m.id,
@@ -439,6 +443,8 @@ app.get('/api/matches/:id', requireAuth, async (req, res) => {
     messages: messages.map((x) => ({ id: x.id, senderId: x.sender_id, body: x.body, createdAt: x.created_at })),
     meetups: meetups.map((x) => ({ id: x.id, proposerId: x.proposer_id, place: x.place, time: x.time, status: x.status, createdAt: x.created_at })),
     down,
+    // Live location: just the state here; the safety screen fetches positions.
+    live: live && { id: live.id, status: live.status, startedByMe: live.startedByMe, endsAt: live.endsAt },
   });
 });
 
@@ -503,12 +509,17 @@ app.post('/api/report', requireAuth, async (req, res) => {
   const id = Number(req.body?.userId);
   const reason = String(req.body?.reason || '').trim().slice(0, 500);
   if (!id || id === req.user.id || !reason || !(await userById(id))) return bad(res, 'Add a reason');
-  await sql.run('INSERT INTO reports (reporter_id, reported_id, reason, created_at) VALUES (?, ?, ?, ?)', req.user.id, id, reason, now());
+  const { rows } = await sql.run(
+    'INSERT INTO reports (reporter_id, reported_id, reason, created_at) VALUES (?, ?, ?, ?) RETURNING id', req.user.id, id, reason, now(),
+  );
+  // Keep both people's location trails from shares between them until an admin resolves the report.
+  await holdForPair(`report:${rows[0].id}`, req.user.id, id);
   await blockUser(req.user.id, id);
   await removeMatchWith(req.user.id, id);
   res.json({ ok: true });
 });
 
+app.use('/api', safety);
 app.use('/api/admin', admin);
 
 // When one server also serves the built web app (local/EC2): unknown paths fall back to index.html.

@@ -34,7 +34,7 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "down uses your location to show people in your county. Your exact location is never shared."
+          "locationWhenInUsePermission": "down uses your location to show people in your county. Your exact location is only shared when you turn on live location for a meetup, an SOS, or a link you send a friend."
         }
       ],
       [

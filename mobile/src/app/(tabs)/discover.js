@@ -86,6 +86,18 @@ export default function Discover() {
         )}
       </View>
 
+      {!me.photo && (
+        <Pressable
+          onPress={() => router.push('/profile')}
+          style={{ marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 12, backgroundColor: colors.accentSoft }}
+        >
+          <Text style={[s.text, { fontSize: 13 }]}>
+            📸 Add a photo so people can see you. Without one you won't show up in anyone's deck.{' '}
+            <Text style={{ color: colors.accent, textDecorationLine: 'underline' }}>Add photo</Text>
+          </Text>
+        </Pressable>
+      )}
+
       {(me.turnOns?.length ?? 0) < 3 && (
         <Pressable
           onPress={() => router.push('/turnons')}

@@ -83,6 +83,51 @@ const TABLES = ({ id, ts, real }) => [
     expires_at ${ts} NOT NULL,
     PRIMARY KEY (match_id, user_id)
   )`,
+  // Safety: two matched people sharing live location on the way to meet. Not tied to the match row
+  // by a foreign key, so unmatching or reporting doesn't erase the record.
+  `CREATE TABLE IF NOT EXISTS live_shares (
+    id          ${id},
+    match_id    BIGINT NOT NULL,
+    a_id        BIGINT NOT NULL,            -- the two people (a < b)
+    b_id        BIGINT NOT NULL,
+    started_by  BIGINT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'pending', -- pending | active | ended | declined
+    end_reason  TEXT,                       -- met | stopped | timeout | cancelled | deleted
+    created_at  ${ts} NOT NULL,
+    accepted_at ${ts},
+    ends_at     ${ts},
+    ended_at    ${ts}
+  )`,
+  // Encrypted location points (see seal.js). Deleted 24h after they're recorded, or sooner by their
+  // owner — except while a report or SOS that involves them is open (hold).
+  `CREATE TABLE IF NOT EXISTS location_points (
+    id         ${id},
+    user_id    BIGINT NOT NULL,             -- no foreign key: held points outlive a deleted account
+    share_id   BIGINT,                      -- live share it was sent for, if any
+    kind       TEXT NOT NULL DEFAULT 'live', -- live | sos
+    sealed     TEXT NOT NULL,               -- AES-256-GCM of {lat, lng, acc}
+    hold       TEXT,                        -- 'report:<id>' or 'sos:<id>' while that case is open
+    created_at ${ts} NOT NULL,
+    expires_at ${ts} NOT NULL
+  )`,
+  // Links a user sends a friend so they can follow them during a meetup. Only the hash is stored.
+  `CREATE TABLE IF NOT EXISTS friend_links (
+    id         ${id},
+    token_hash TEXT UNIQUE NOT NULL,
+    user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at ${ts} NOT NULL,
+    expires_at ${ts} NOT NULL,
+    revoked    INTEGER DEFAULT 0
+  )`,
+  `CREATE TABLE IF NOT EXISTS sos_alerts (
+    id          ${id},
+    user_id     BIGINT NOT NULL,
+    share_id    BIGINT,
+    other_id    BIGINT,                     -- who they were meeting, if a live share was on
+    status      TEXT NOT NULL DEFAULT 'open', -- open | resolved
+    created_at  ${ts} NOT NULL,
+    resolved_at ${ts}
+  )`,
   // Runtime settings the admin dashboard can change (e.g. demo mode).
   `CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
@@ -105,6 +150,12 @@ const INDEXES = [
   ['messages_match', 'messages (match_id, id)'],
   ['meetups_match', 'meetups (match_id)'],
   ['reports_reported', 'reports (reported_id)'],
+  ['live_shares_match', 'live_shares (match_id)'],
+  ['live_shares_people', 'live_shares (a_id, b_id)'],
+  ['location_points_user', 'location_points (user_id, created_at)'],
+  ['location_points_share', 'location_points (share_id)'],
+  ['location_points_expiry', 'location_points (expires_at)'],
+  ['friend_links_user', 'friend_links (user_id)'],
 ];
 
 // Columns added to existing tables after the first release. CREATE TABLE IF NOT EXISTS won't add a

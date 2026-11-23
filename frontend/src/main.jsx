@@ -15,6 +15,7 @@ import Matches from './pages/Matches.jsx';
 import Chat from './pages/Chat.jsx';
 import Profile from './pages/Profile.jsx';
 import Admin from './pages/Admin.jsx';
+import Safe from './pages/Safe.jsx';
 import './styles.css';
 
 function App() {
@@ -90,6 +91,10 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <BrowserRouter>
-    <App />
+    <Routes>
+      {/* Public: a friend following someone's shared location. No login, so it skips the app shell. */}
+      <Route path="/safe/:token" element={<Safe />} />
+      <Route path="*" element={<App />} />
+    </Routes>
   </BrowserRouter>,
 );

@@ -15,6 +15,7 @@ execFileSync(process.execPath, ['src/seed.js'], { env: process.env, stdio: 'igno
 // Stand in for Cognito: every request is an admin, and Cognito admin calls "succeed".
 mock.module('../src/auth.js', {
   namedExports: {
+    requireAuth: (req, res) => res.status(401).end(),
     requireAdmin: (req, res, next) => {
       req.identity = { email: 'admin@test', sub: 'admin-sub', isAdmin: true };
       next();

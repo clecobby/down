@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, photoUrl } from '../api.js';
 
 // Admin dashboard. The API refuses anyone outside the Cognito "admins" group, whatever this page shows.
-const TABS = ['Overview', 'Users', 'Reports', 'Settings', 'Log'];
+const TABS = ['Overview', 'Users', 'Reports', 'Safety', 'Settings', 'Log'];
 
 const ago = (t) => {
   if (!t) return '—';
@@ -21,6 +21,7 @@ export default function Admin() {
   const tab = TABS.find((t) => t.toLowerCase() === params.get('tab')) || 'Overview';
   const setTab = (t) => setParams(t === 'Overview' ? {} : { tab: t.toLowerCase() });
   const [openUser, setOpenUser] = useState(null);
+  const [openTrail, setOpenTrail] = useState(null); // 'report:12' | 'sos:3'
 
   return (
     <div className="admin">
@@ -39,11 +40,13 @@ export default function Admin() {
       <main className="admin-main">
         {tab === 'Overview' && <Overview />}
         {tab === 'Users' && <Users onOpen={setOpenUser} />}
-        {tab === 'Reports' && <Reports onOpen={setOpenUser} />}
+        {tab === 'Reports' && <Reports onOpen={setOpenUser} onTrail={setOpenTrail} />}
+        {tab === 'Safety' && <Safety onOpen={setOpenUser} onTrail={setOpenTrail} />}
         {tab === 'Settings' && <Settings />}
         {tab === 'Log' && <Log />}
       </main>
       {openUser && <UserPanel id={openUser} onClose={() => setOpenUser(null)} />}
+      {openTrail && <TrailPanel caseRef={openTrail} onClose={() => setOpenTrail(null)} />}
     </div>
   );
 }
@@ -321,7 +324,7 @@ function UserPanel({ id, onClose }) {
 
 // ---------- reports ----------
 
-function Reports({ onOpen }) {
+function Reports({ onOpen, onTrail }) {
   const [status, setStatus] = useState('open');
   const [list, setList] = useState(null);
   const load = useCallback(() => api(`/admin/reports?status=${status}`).then(setList).catch(() => setList([])), [status]);
@@ -361,6 +364,9 @@ function Reports({ onOpen }) {
                 <div className="panel-actions">
                   <button className="btn primary sm" onClick={() => resolve(r, 'suspend')}>Suspend them</button>
                   <button className="btn ghost sm" onClick={() => resolve(r, 'dismiss')}>Dismiss</button>
+                  {r.held_points > 0 && (
+                    <button className="btn ghost sm" onClick={() => onTrail(`report:${r.id}`)}>📍 Location trail ({r.held_points})</button>
+                  )}
                 </div>
               )}
             </div>
@@ -368,6 +374,104 @@ function Reports({ onOpen }) {
         </div>
       )}
     </>
+  );
+}
+
+// ---------- safety ----------
+
+function Safety({ onOpen, onTrail }) {
+  const [list, setList] = useState(null);
+  const load = useCallback(() => api('/admin/safety').then((r) => setList(r.sos)).catch(() => setList([])), []);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const resolve = async (a) => {
+    if (!confirm(`Resolve SOS #${a.id}? Its location trail goes back to normal 24-hour deletion.`)) return;
+    await api(`/admin/sos/${a.id}/resolve`, { method: 'POST' }).catch((e) => alert(e.message));
+    load();
+  };
+
+  return (
+    <>
+      <p className="muted small">
+        SOS alerts from the app. Location trails are encrypted; opening one is written to the Log. Reports with a held trail show a 📍 button on the Reports tab.
+      </p>
+      {!list ? (
+        <p className="muted">Loading…</p>
+      ) : list.length === 0 ? (
+        <p className="muted">✓ No open SOS alerts.</p>
+      ) : (
+        <div className="report-cards">
+          {list.map((a) => (
+            <div key={a.id} className="report-card">
+              <div>
+                <span className="badge danger">SOS #{a.id}</span>{' '}
+                <button className="link strong" onClick={() => onOpen(a.user.id)}>{a.user.name} @{a.user.username}</button>
+                {a.status === 'cancelled' && <span className="badge">Cancelled by user</span>}
+              </div>
+              <p className="muted small">
+                {when(a.createdAt)} ({ago(a.createdAt)})
+                {a.other && <> · was meeting <button className="link" onClick={() => onOpen(a.other.id)}>@{a.other.username}</button></>}
+              </p>
+              <div className="panel-actions">
+                <button className="btn primary sm" onClick={() => onTrail(a.ref)}>📍 Location trail ({a.points})</button>
+                <button className="btn ghost sm" onClick={() => resolve(a)}>Resolve</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function TrailPanel({ caseRef, onClose }) {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    api(`/admin/safety/trail?ref=${encodeURIComponent(caseRef)}`).then(setData).catch((e) => setError(e.message));
+  }, [caseRef]);
+  const osm = (p) => `https://www.openstreetmap.org/?mlat=${p.lat}&mlon=${p.lng}#map=17/${p.lat}/${p.lng}`;
+
+  return (
+    <div className="panel-backdrop" onClick={onClose}>
+      <aside className="panel" onClick={(e) => e.stopPropagation()}>
+        <button className="link panel-close" onClick={onClose}>Close ✕</button>
+        <h2>Location trail · {caseRef}</h2>
+        <p className="muted small">This view is recorded in the Log.</p>
+        {error ? (
+          <p className="muted">{error}</p>
+        ) : !data ? (
+          <p className="muted">Loading…</p>
+        ) : data.people.length === 0 ? (
+          <p className="muted">No location points are held for this case.</p>
+        ) : (
+          data.people.map((p) => (
+            <div key={p.userId}>
+              <h3>{p.name} @{p.username} · {p.points.length} points</h3>
+              <table className="trail-table">
+                <thead>
+                  <tr><th>Time</th><th>Where</th><th>±</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {[...p.points].reverse().map((pt) => (
+                    <tr key={pt.at + pt.kind}>
+                      <td>{when(pt.at)}</td>
+                      <td><a href={osm(pt)} target="_blank" rel="noreferrer">{pt.lat.toFixed(5)}, {pt.lng.toFixed(5)}</a></td>
+                      <td>{pt.acc != null ? `${pt.acc} m` : ''}</td>
+                      <td>{pt.kind === 'sos' ? <span className="badge danger">SOS</span> : null}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))
+        )}
+      </aside>
+    </div>
   );
 }
 

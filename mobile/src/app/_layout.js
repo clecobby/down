@@ -8,6 +8,13 @@ import { loadSession, signOut } from '../lib/cognito';
 import { MeContext } from '../lib/me';
 import { colors } from '../lib/theme';
 import { Logo } from '../components/ui';
+import { useSafetySender } from '../lib/safety';
+
+// Sends location while a live share, friend link or SOS is on (renders nothing).
+function SafetySender() {
+  useSafetySender();
+  return null;
+}
 
 export default function RootLayout() {
   // loading → out (no Cognito session) | setup (signed in, no profile yet) | in
@@ -49,6 +56,7 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.bg }}>
       <MeContext.Provider value={{ me, setMe, status, refresh, logout }}>
         <StatusBar style="light" />
+        {status === 'in' && <SafetySender />}
         <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg }, animation: 'fade' }}>
           <Stack.Screen name="index" />
           <Stack.Protected guard={status === 'out'}>
@@ -63,6 +71,8 @@ export default function RootLayout() {
           <Stack.Protected guard={status === 'in'}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="chat/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="live/[id]" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="safety" options={{ animation: 'slide_from_right' }} />
             <Stack.Screen name="turnons" options={{ presentation: 'fullScreenModal', animation: 'slide_from_bottom' }} />
           </Stack.Protected>
         </Stack>
